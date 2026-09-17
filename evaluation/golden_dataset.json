@@ -1,0 +1,652 @@
+[
+  {
+    "id": "q001",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the requested loan amount?",
+    "expected_answer": "$320,000",
+    "source_pages": [1],
+    "acceptable_answer_points": [
+      "$320,000",
+      "320000"
+    ]
+  },
+  {
+    "id": "q002",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the purchase price of the property?",
+    "expected_answer": "$400,000",
+    "source_pages": [1, 5],
+    "acceptable_answer_points": [
+      "$400,000",
+      "400000"
+    ]
+  },
+  {
+    "id": "q003",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the borrower's annual base salary?",
+    "expected_answer": "$120,000",
+    "source_pages": [2],
+    "acceptable_answer_points": [
+      "$120,000",
+      "120000"
+    ]
+  },
+  {
+    "id": "q004",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the borrower's gross monthly qualifying income?",
+    "expected_answer": "$11,000",
+    "source_pages": [2],
+    "acceptable_answer_points": [
+      "$11,000",
+      "11000",
+      "11,000 per month"
+    ]
+  },
+  {
+    "id": "q005",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the borrower's representative FICO score?",
+    "expected_answer": "760",
+    "source_pages": [3],
+    "acceptable_answer_points": [
+      "760",
+      "FICO score of 760"
+    ]
+  },
+  {
+    "id": "q006",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the borrower's calculated DTI?",
+    "expected_answer": "35.65%",
+    "source_pages": [3],
+    "acceptable_answer_points": [
+      "35.65%",
+      "35.65 percent"
+    ]
+  },
+  {
+    "id": "q007",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the borrower's total reported asset balance?",
+    "expected_answer": "$222,000",
+    "source_pages": [4],
+    "acceptable_answer_points": [
+      "$222,000",
+      "222000"
+    ]
+  },
+  {
+    "id": "q008",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "How much cash is required to close?",
+    "expected_answer": "$93,000",
+    "source_pages": [4],
+    "acceptable_answer_points": [
+      "$93,000",
+      "93000"
+    ]
+  },
+  {
+    "id": "q009",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the appraised value of the property?",
+    "expected_answer": "$410,000",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "$410,000",
+      "410000"
+    ]
+  },
+  {
+    "id": "q010",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the calculated loan-to-value ratio?",
+    "expected_answer": "80.00%",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "80.00%",
+      "80%"
+    ]
+  },
+  {
+    "id": "q011",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What type of property is the borrower purchasing?",
+    "expected_answer": "A single-family residence",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "single-family residence",
+      "single family residence"
+    ]
+  },
+  {
+    "id": "q012",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the average comparable sale price?",
+    "expected_answer": "$405,000",
+    "source_pages": [6],
+    "acceptable_answer_points": [
+      "$405,000",
+      "405000"
+    ]
+  },
+  {
+    "id": "q013",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "Are any critical underwriting documents currently identified as missing?",
+    "expected_answer": "No. No critical underwriting document is currently identified as missing.",
+    "source_pages": [7],
+    "acceptable_answer_points": [
+      "No",
+      "No critical underwriting documents are missing",
+      "No critical document is missing"
+    ]
+  },
+  {
+    "id": "q014",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the minimum FICO score required under the synthetic qualification criteria?",
+    "expected_answer": "700",
+    "source_pages": [8],
+    "acceptable_answer_points": [
+      "700",
+      "minimum FICO of 700"
+    ]
+  },
+  {
+    "id": "q015",
+    "category": "direct_fact_lookup",
+    "difficulty": "easy",
+    "question": "What is the expected underwriting decision?",
+    "expected_answer": "Approve",
+    "source_pages": [10],
+    "acceptable_answer_points": [
+      "Approve",
+      "Approval",
+      "APPROVE"
+    ]
+  },
+
+  {
+    "id": "q016",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "According to the document, what does DTI represent in this underwriting case?",
+    "expected_answer": "DTI is calculated by dividing total monthly obligations by gross monthly qualifying income and expressing the result as a percentage.",
+    "source_pages": [3],
+    "acceptable_answer_points": [
+      "Total monthly obligations divided by gross monthly qualifying income",
+      "Monthly obligations divided by monthly gross income",
+      "Debt-to-income ratio"
+    ]
+  },
+  {
+    "id": "q017",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "According to the document, what does LTV represent in this test case?",
+    "expected_answer": "LTV is the requested loan amount divided by the value used for the standard purchase LTV calculation, expressed as a percentage.",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "Loan amount divided by the value used for LTV",
+      "Loan-to-value ratio",
+      "Requested loan amount divided by the applicable property value"
+    ]
+  },
+  {
+    "id": "q018",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "What is meant by the term 'representative FICO score' in the credit section?",
+    "expected_answer": "The representative FICO score stated for the borrower is 760.",
+    "source_pages": [3],
+    "acceptable_answer_points": [
+      "The borrower's FICO score is 760",
+      "760",
+      "Representative FICO Score: 760"
+    ]
+  },
+  {
+    "id": "q019",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "What does 'qualifying income' mean in the context of this document?",
+    "expected_answer": "It is the income amount used for underwriting calculations; in this case, it consists of $10,000 monthly base salary plus $1,000 monthly average bonus, totaling $11,000.",
+    "source_pages": [2],
+    "acceptable_answer_points": [
+      "$10,000 base salary plus $1,000 average bonus",
+      "$11,000 gross monthly qualifying income",
+      "Income used for the underwriting calculation"
+    ]
+  },
+  {
+    "id": "q020",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "What does the document mean by 'required cash to close'?",
+    "expected_answer": "It is the estimated amount needed for the down payment, estimated closing costs, and prepaid taxes and insurance, totaling $93,000.",
+    "source_pages": [4],
+    "acceptable_answer_points": [
+      "$93,000",
+      "Down payment plus closing costs and prepaid taxes and insurance",
+      "Amount required to close the loan"
+    ]
+  },
+  {
+    "id": "q021",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "What does 'primary residence' mean in the context of this mortgage application?",
+    "expected_answer": "The property is intended to be occupied by the borrower as their primary residence.",
+    "source_pages": [1, 5],
+    "acceptable_answer_points": [
+      "Primary residence",
+      "The borrower's main residence",
+      "Property intended for primary occupancy"
+    ]
+  },
+  {
+    "id": "q022",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "What is meant by a 'critical underwriting document' in this test case?",
+    "expected_answer": "It refers to an underwriting document whose absence would be relevant to determining whether the application has the required documentation; this case states that no critical underwriting document is currently missing.",
+    "source_pages": [7, 8],
+    "acceptable_answer_points": [
+      "A required underwriting document",
+      "A document needed for underwriting",
+      "No critical underwriting document is missing"
+    ]
+  },
+  {
+    "id": "q023",
+    "category": "definition_meaning",
+    "difficulty": "medium",
+    "question": "What is the purpose of the synthetic qualification criteria in this document?",
+    "expected_answer": "They provide test thresholds that the underwriting engine should use to evaluate the borrower, including minimum FICO, maximum DTI, maximum LTV, minimum reserves, document completeness, bankruptcy, and foreclosure criteria.",
+    "source_pages": [8],
+    "acceptable_answer_points": [
+      "Provide test underwriting thresholds",
+      "Evaluate whether the borrower qualifies",
+      "Define the criteria used for the test case"
+    ]
+  },
+
+  {
+    "id": "q024",
+    "category": "multi_hop",
+    "difficulty": "medium",
+    "question": "Does the borrower meet the minimum FICO requirement?",
+    "expected_answer": "Yes. The borrower's FICO score is 760 and the minimum requirement is 700.",
+    "source_pages": [3, 8],
+    "acceptable_answer_points": [
+      "Yes",
+      "760 is above the 700 minimum",
+      "FICO requirement passes"
+    ]
+  },
+  {
+    "id": "q025",
+    "category": "multi_hop",
+    "difficulty": "medium",
+    "question": "Does the borrower's DTI satisfy the synthetic underwriting requirement?",
+    "expected_answer": "Yes. The borrower's DTI is 35.65%, which is below the maximum permitted DTI of 43%.",
+    "source_pages": [3, 8],
+    "acceptable_answer_points": [
+      "Yes",
+      "35.65% is below 43%",
+      "DTI requirement passes"
+    ]
+  },
+  {
+    "id": "q026",
+    "category": "multi_hop",
+    "difficulty": "medium",
+    "question": "Does the borrower meet the LTV requirement?",
+    "expected_answer": "Yes. The calculated LTV is exactly 80.00%, and the maximum standard LTV is 80%.",
+    "source_pages": [5, 8],
+    "acceptable_answer_points": [
+      "Yes",
+      "80.00% meets the 80% maximum",
+      "LTV requirement passes"
+    ]
+  },
+  {
+    "id": "q027",
+    "category": "multi_hop",
+    "difficulty": "medium",
+    "question": "Does the borrower have enough reserves to satisfy the synthetic requirement?",
+    "expected_answer": "Yes. The borrower has approximately 47.39 months of reserves, compared with a minimum requirement of 6 months.",
+    "source_pages": [4, 8],
+    "acceptable_answer_points": [
+      "Yes",
+      "47.39 months versus 6 months required",
+      "Reserves requirement passes"
+    ]
+  },
+  {
+    "id": "q028",
+    "category": "multi_hop",
+    "difficulty": "hard",
+    "question": "Why is the purchase-price value rather than the appraised value used to calculate the standard purchase LTV?",
+    "expected_answer": "Because the document states that the underwriting system uses the lower of the purchase price or appraised value for the standard purchase LTV calculation. The purchase price is $400,000 and the appraisal is $410,000, so $400,000 is used.",
+    "source_pages": [5, 11],
+    "acceptable_answer_points": [
+      "The lower value is used",
+      "Purchase price is $400,000 and appraisal is $410,000",
+      "$400,000 is lower and therefore used"
+    ]
+  },
+  {
+    "id": "q029",
+    "category": "multi_hop",
+    "difficulty": "hard",
+    "question": "Why is the expected decision an approval?",
+    "expected_answer": "Because the borrower passes all defined test-case qualification criteria: FICO, DTI, LTV, reserves, document completeness, bankruptcy, and foreclosure requirements.",
+    "source_pages": [8, 10],
+    "acceptable_answer_points": [
+      "All defined qualification criteria are satisfied",
+      "FICO, DTI, LTV and reserves pass",
+      "No critical documents are missing",
+      "No bankruptcy or foreclosure is identified"
+    ]
+  },
+  {
+    "id": "q030",
+    "category": "multi_hop",
+    "difficulty": "hard",
+    "question": "How much liquid money does the borrower have remaining after estimated closing requirements?",
+    "expected_answer": "$129,000. The borrower has $222,000 in total reported assets and $93,000 is estimated to be required to close.",
+    "source_pages": [4],
+    "acceptable_answer_points": [
+      "$129,000",
+      "$222,000 minus $93,000",
+      "129000"
+    ]
+  },
+  {
+    "id": "q031",
+    "category": "multi_hop",
+    "difficulty": "hard",
+    "question": "What is the margin between the borrower's DTI and the maximum permitted DTI?",
+    "expected_answer": "7.35 percentage points. The borrower's DTI is 35.65% and the maximum permitted DTI is 43%.",
+    "source_pages": [3, 8, 11],
+    "acceptable_answer_points": [
+      "7.35 percentage points",
+      "43% minus 35.65%",
+      "7.35%"
+    ]
+  },
+
+  {
+    "id": "q032",
+    "category": "comparison",
+    "difficulty": "medium",
+    "question": "How does the appraised value compare with the contract purchase price?",
+    "expected_answer": "The appraised value is $410,000, which is $10,000 higher than the $400,000 contract purchase price.",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "$10,000 higher",
+      "$410,000 versus $400,000",
+      "Appraisal exceeds purchase price by $10,000"
+    ]
+  },
+  {
+    "id": "q033",
+    "category": "comparison",
+    "difficulty": "medium",
+    "question": "How does the borrower's FICO score compare with the minimum requirement?",
+    "expected_answer": "The borrower's FICO score is 760, which is 60 points above the minimum requirement of 700.",
+    "source_pages": [3, 8],
+    "acceptable_answer_points": [
+      "60 points above",
+      "760 versus 700",
+      "FICO exceeds the requirement"
+    ]
+  },
+  {
+    "id": "q034",
+    "category": "comparison",
+    "difficulty": "medium",
+    "question": "How does the borrower's DTI compare with the maximum permitted DTI?",
+    "expected_answer": "The borrower's DTI is 35.65%, which is 7.35 percentage points below the 43% maximum.",
+    "source_pages": [3, 8, 11],
+    "acceptable_answer_points": [
+      "7.35 percentage points below",
+      "35.65% versus 43%",
+      "DTI is below the maximum"
+    ]
+  },
+  {
+    "id": "q035",
+    "category": "comparison",
+    "difficulty": "medium",
+    "question": "How do the borrower's reserves compare with the minimum reserve requirement?",
+    "expected_answer": "The borrower has approximately 47.39 months of reserves, compared with the 6-month minimum requirement.",
+    "source_pages": [4, 8],
+    "acceptable_answer_points": [
+      "47.39 months versus 6 months",
+      "41.39 months above the minimum",
+      "Reserves substantially exceed the requirement"
+    ]
+  },
+  {
+    "id": "q036",
+    "category": "comparison",
+    "difficulty": "medium",
+    "question": "How does the average comparable sale price compare with the subject property's appraised value?",
+    "expected_answer": "The average comparable sale price is $405,000, while the subject property is appraised at $410,000. The appraisal is $5,000 higher.",
+    "source_pages": [5, 6],
+    "acceptable_answer_points": [
+      "$5,000 higher",
+      "$405,000 versus $410,000",
+      "Appraised value exceeds average comparable price"
+    ]
+  },
+  {
+    "id": "q037",
+    "category": "comparison",
+    "difficulty": "hard",
+    "question": "Which is greater: the borrower's total reported assets or the estimated cash required to close, and by how much?",
+    "expected_answer": "Total reported assets are greater. The borrower has $222,000 in reported assets compared with $93,000 required to close, a difference of $129,000.",
+    "source_pages": [4],
+    "acceptable_answer_points": [
+      "$222,000 is greater",
+      "Difference of $129,000",
+      "Assets exceed cash-to-close requirement"
+    ]
+  },
+
+  {
+    "id": "q038",
+    "category": "numerical_financial",
+    "difficulty": "medium",
+    "question": "How is the borrower's DTI of 35.65% calculated?",
+    "expected_answer": "DTI is calculated as $3,922 in total monthly obligations divided by $11,000 in gross monthly qualifying income, multiplied by 100, resulting in 35.65%.",
+    "source_pages": [3],
+    "acceptable_answer_points": [
+      "$3,922 ÷ $11,000 × 100",
+      "35.65%",
+      "Monthly obligations divided by gross monthly income"
+    ]
+  },
+  {
+    "id": "q039",
+    "category": "numerical_financial",
+    "difficulty": "medium",
+    "question": "How is the 80.00% LTV calculated?",
+    "expected_answer": "The $320,000 requested loan amount is divided by the $400,000 value used for the purchase LTV calculation, resulting in 80.00%.",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "$320,000 ÷ $400,000",
+      "80.00%",
+      "Loan amount divided by purchase-price value"
+    ]
+  },
+  {
+    "id": "q040",
+    "category": "numerical_financial",
+    "difficulty": "medium",
+    "question": "What is the difference between the appraised value and the purchase price?",
+    "expected_answer": "$10,000",
+    "source_pages": [5],
+    "acceptable_answer_points": [
+      "$10,000",
+      "410000 - 400000",
+      "$10,000 higher appraisal"
+    ]
+  },
+  {
+    "id": "q041",
+    "category": "numerical_financial",
+    "difficulty": "hard",
+    "question": "How many months of reserves does the borrower have according to the document?",
+    "expected_answer": "Approximately 47.39 months.",
+    "source_pages": [4],
+    "acceptable_answer_points": [
+      "47.39 months",
+      "Approximately 47.39 months"
+    ]
+  },
+  {
+    "id": "q042",
+    "category": "numerical_financial",
+    "difficulty": "medium",
+    "question": "What is the borrower's monthly bonus income used for qualifying income?",
+    "expected_answer": "$1,000 per month",
+    "source_pages": [2],
+    "acceptable_answer_points": [
+      "$1,000",
+      "$1,000 per month",
+      "Monthly qualifying bonus income of $1,000"
+    ]
+  },
+
+  {
+    "id": "q043",
+    "category": "negative_unknown",
+    "difficulty": "hard",
+    "question": "What is the spouse's monthly income?",
+    "expected_answer": "The document does not provide the spouse's income.",
+    "source_pages": [],
+    "acceptable_answer_points": [
+      "Not provided",
+      "Not stated",
+      "The document does not provide the spouse's income"
+    ]
+  },
+  {
+    "id": "q044",
+    "category": "negative_unknown",
+    "difficulty": "hard",
+    "question": "What is the borrower's bank account number?",
+    "expected_answer": "The document does not provide a bank account number.",
+    "source_pages": [],
+    "acceptable_answer_points": [
+      "Not provided",
+      "Not stated",
+      "The bank account number is not in the document"
+    ]
+  },
+  {
+    "id": "q045",
+    "category": "negative_unknown",
+    "difficulty": "hard",
+    "question": "What religion does the borrower practice?",
+    "expected_answer": "The document does not state the borrower's religion, and it should not be inferred.",
+    "source_pages": [],
+    "acceptable_answer_points": [
+      "Not stated",
+      "Not provided",
+      "Cannot be inferred from the document"
+    ]
+  },
+  {
+    "id": "q046",
+    "category": "negative_unknown",
+    "difficulty": "hard",
+    "question": "Was the borrower unemployed at any point during 2025?",
+    "expected_answer": "The document does not state whether the borrower was unemployed during 2025.",
+    "source_pages": [],
+    "acceptable_answer_points": [
+      "Not stated",
+      "Not provided",
+      "The document does not say whether the borrower was unemployed"
+    ]
+  },
+
+  {
+    "id": "q047",
+    "category": "compliance_sensitive",
+    "difficulty": "medium",
+    "question": "Which protected characteristics must not influence the underwriting recommendation?",
+    "expected_answer": "Race, color, religion, sex, national origin, familial status, and disability.",
+    "source_pages": [9],
+    "acceptable_answer_points": [
+      "Race",
+      "Color",
+      "Religion",
+      "Sex",
+      "National origin",
+      "Familial status",
+      "Disability"
+    ]
+  },
+  {
+    "id": "q048",
+    "category": "compliance_sensitive",
+    "difficulty": "medium",
+    "question": "What does the document say about the use of protected characteristics in the loan decision?",
+    "expected_answer": "Protected characteristics must not be used as decision factors. The recommendation must be based on relevant financial, credit, property, and underwriting criteria.",
+    "source_pages": [9],
+    "acceptable_answer_points": [
+      "Protected characteristics must not be used",
+      "Decision must be based on financial, credit, property and underwriting criteria",
+      "Protected characteristics must not influence the decision"
+    ]
+  },
+  {
+    "id": "q049",
+    "category": "compliance_sensitive",
+    "difficulty": "hard",
+    "question": "What should the system do if a future test case fails one or more qualification criteria?",
+    "expected_answer": "It should identify the failed criterion, preserve supporting evidence, avoid unsupported explanations, generate an appropriate adverse-action reason, and avoid using protected characteristics as a reason for the decision.",
+    "source_pages": [9],
+    "acceptable_answer_points": [
+      "Identify the failed criterion",
+      "Preserve supporting evidence",
+      "Avoid unsupported explanations",
+      "Generate an appropriate adverse-action reason",
+      "Do not use protected characteristics"
+    ]
+  },
+  {
+    "id": "q050",
+    "category": "compliance_sensitive",
+    "difficulty": "hard",
+    "question": "What regulatory areas are identified for compliance review in this test case?",
+    "expected_answer": "RESPA, TILA, and Fair Housing.",
+    "source_pages": [9],
+    "acceptable_answer_points": [
+      "RESPA",
+      "TILA",
+      "Fair Housing"
+    ]
+  }
+]
