@@ -16,3 +16,5 @@ MODEL_SETTINGS = {
 } 
  
 FALLBACK_CHAIN = ["nvidia", "gemini_flash", "groq"] 
+MIN_TEXT_LENGTH_FOR_OCR = 100
+OCR_DPI = 300
