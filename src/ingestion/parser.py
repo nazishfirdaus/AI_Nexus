@@ -77,7 +77,7 @@ def render_page_to_image(
 
     zoom = dpi / 72
 
-    matrix = fitz.Matrix(
+    matrix = pymupdf.Matrix(
         zoom,
         zoom,
     )
