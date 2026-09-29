@@ -79,6 +79,12 @@ class HybridRetriever:
         self.documents, self.bm25, self._token_sets = [], None, []
         self._rebuild_attempted = False
 
+    def rebuild_bm25(self, documents: List[Document]) -> None:
+        """Rebuild the BM25 index from the chunk corpus (used after ingestion)."""
+        self._build_bm25(documents)
+        self._rebuild_attempted = True
+        logger.info("BM25 index rebuilt from %d chunk(s)", len(documents))
+
     def _ensure_bm25(self) -> None:
         """BM25 is in memory, Chroma is on disk: after an app restart BM25 would be empty
         and search silently dense-only. Rebuild once from the vector DB if possible."""

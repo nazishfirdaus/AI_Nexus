@@ -9,12 +9,14 @@ from __future__ import annotations
 import logging
 import threading
 from functools import lru_cache
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from langchain_core.documents import Document
-from sentence_transformers import SentenceTransformer
 
 from config.settings import EMBEDDING_MODEL_NAME  # noqa: F401  (re-exported below)
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +29,13 @@ QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
 @lru_cache(maxsize=1)
-def get_embedding_model() -> SentenceTransformer:
+def get_embedding_model() -> "SentenceTransformer":
     """Load BGE-large once per process on CPU. Thread-safe; later calls reuse the same
     instance (so a second copy is never loaded into memory)."""
     with _LOCK:
         logger.info("Loading embedding model %s on CPU", EMBEDDING_MODEL_NAME)
+        from sentence_transformers import SentenceTransformer  # heavy: import lazily
+
         return SentenceTransformer(EMBEDDING_MODEL_NAME, device="cpu")
 
 

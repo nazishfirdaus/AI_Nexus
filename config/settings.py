@@ -44,10 +44,12 @@ LLM_MAX_TOKENS = 700
 LLM_TEMPERATURE = 0.1
 
 # Model id sent to each provider's API (override via env)
+# NOTE (2026-09): the former defaults were retired -- groq llama-3.3-70b-versatile
+# and NVIDIA meta/llama-3.1-70b-instruct are gone; Gemini requires gemini-3.8-flash.
 PROVIDER_MODELS = {
-    "nvidia": os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
-    "gemini_flash": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-    "groq": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    "nvidia": os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct"),
+    "gemini_flash": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+    "groq": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
 }
 
 # Router: the intent only picks the FIRST provider; the rest of the chain always

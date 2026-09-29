@@ -10,6 +10,10 @@ __pycache__/
 
 chroma_db/
 
+evaluation/results.json
+
+evaluation/ragas_report.json
+
 .pytest_cache/
 
 .coverage

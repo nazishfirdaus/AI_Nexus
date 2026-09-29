@@ -17,15 +17,10 @@ from dataclasses import dataclass
 import requests
 
 from config import settings
+from config.prompts import SYSTEM_PROMPT, USER_PROMPT
 from src.routing.quota_tracker import QuotaTracker
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = (
-    "You are a document question-answering assistant. Answer ONLY from the provided "
-    "context. If the answer is not in the context, say you cannot find it. Be concise. "
-    "Some values are redacted placeholders like <PERSON>; never guess them."
-)
 
 
 class ScrubbedText(str):
@@ -55,7 +50,7 @@ class LLMResponse:
 
 
 def _build_user_prompt(query: str, context: str) -> str:
-    return f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+    return USER_PROMPT.format(question=query, context=context)
 
 
 # ---------------------------------------------------------------------------
