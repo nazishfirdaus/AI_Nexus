@@ -30,7 +30,7 @@ jobs:
       - name: Run test suite
         env:
           SIMULATE_LLM: "true"
-        run: pytest -q
+        run: python -m pytest -q
 
   eval:
     name: Offline bge eval (golden set)
