@@ -220,7 +220,12 @@ def test_provider_never_receives_raw_pii(pipeline, pdf_path):
     """Security gate (§16): mock provider must get scrubbed context only."""
     page = pymupdf.open()
     p = page.new_page()
-    p.insert_text((72, 72), f"Reference id {AADHAAR} on file for this loan.")
+    p.insert_text(
+        (72, 72),
+        f"Reference id {AADHAAR} on file for this loan. "
+        "This is a confidential document prepared for the underwriting "
+        "and credit review process only.",
+    )
     page.save(str(pdf_path))
     page.close()
 
