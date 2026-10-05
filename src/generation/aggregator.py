@@ -7,10 +7,11 @@ chunks. Page numbers are deduplicated and sorted by rerank score.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Iterable, Optional
+from typing import Iterable, Optional, TYPE_CHECKING
 
-from src.generation.llm import LLMResponse
-from src.retrieval.reranker import RankedChunk
+if TYPE_CHECKING:
+    from src.generation.llm import LLMResponse
+    from src.retrieval.reranker import RankedChunk
 
 NO_CONTEXT_ANSWER = (
     "The answer is not available in the uploaded document. "

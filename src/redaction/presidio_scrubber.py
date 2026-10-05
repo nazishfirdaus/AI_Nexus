@@ -19,9 +19,33 @@ from collections import Counter
 from functools import lru_cache
 from typing import Iterable, Sequence
 
-from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
-from presidio_analyzer.nlp_engine import NlpEngineProvider
-from presidio_anonymizer import AnonymizerEngine
+# Defer heavy Presidio/transformers/torch imports to avoid 30s startup
+import sys as _sys
+import types as _types
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
+    from presidio_anonymizer import AnonymizerEngine
+
+# Eager base classes needed at module scope (AadhaarRecognizer/PanRecognizer)
+try:
+    from presidio_analyzer import Pattern, PatternRecognizer  # type: ignore
+except Exception:
+    Pattern = object  # type: ignore
+    PatternRecognizer = object  # type: ignore
+
+# Stub torch/transformers before full Presidio import to avoid pulling heavy deps
+_stubs: list[str] = []
+for _m in ("torch", "transformers"):
+    if _m not in _sys.modules:
+        stub = _types.ModuleType(_m)
+        stub.__spec__ = None
+        stub.__getattr__ = lambda name, _mname=_m: type(name, (), {})  # type: ignore[misc]
+        _sys.modules[_m] = stub
+        _stubs.append(_m)
 
 from config import settings
 from src.generation.llm import ScrubbedText
@@ -136,6 +160,11 @@ class PresidioScrubber:
                         f"Run: python -m spacy download {self.spacy_model}"
                     )
                 try:
+                    # Import heavy deps inside lock, after stubbing
+                    from presidio_analyzer import AnalyzerEngine
+                    from presidio_analyzer.nlp_engine import NlpEngineProvider
+                    from presidio_anonymizer import AnonymizerEngine
+
                     nlp = NlpEngineProvider(nlp_configuration={
                         "nlp_engine_name": "spacy",
                         "models": [{"lang_code": "en", "model_name": self.spacy_model}],
@@ -147,6 +176,11 @@ class PresidioScrubber:
                     self._analyzer = analyzer
                 except (Exception, SystemExit) as e:
                     raise ScrubError(f"Could not initialise PII scrubber: {e}") from e
+                finally:
+                    # Remove stubs so sentence_transformers/torch load real modules later
+                    for _m in _stubs:
+                        _sys.modules.pop(_m, None)
+                    _stubs.clear()
             return self._analyzer, self._anonymizer
 
     # -- public API ------------------------------------------------------------

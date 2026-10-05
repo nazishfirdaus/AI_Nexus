@@ -22,7 +22,7 @@ from src.generation.aggregator import Aggregator, FinalAnswer
 from src.generation.llm import LLMHandler
 from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
-from src.ingestion.parser import parse_pdf
+# parse_pdf imported lazily in ingest_document to reduce startup cost
 from src.ingestion.vectordb import VectorDB
 from src.redaction.presidio_scrubber import PresidioScrubber, build_llm_inputs
 from src.retrieval.reranker import CrossEncoderReranker, RankedChunk
@@ -92,6 +92,8 @@ class RAGPipeline:
         """Parse -> chunk -> embed -> store -> rebuild BM25. Resets any previous doc."""
         pdf_path = Path(pdf_path)
         start = time.perf_counter()
+        from src.ingestion.parser import parse_pdf
+
         page_documents = parse_pdf(pdf_path)
         if not page_documents:
             raise ValueError(f"No text could be extracted from {pdf_path.name}")

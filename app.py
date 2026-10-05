@@ -114,6 +114,13 @@ def handle_source(uploaded, use_sample: bool) -> None:
         ingest_pdf(SAMPLE_PDF.read_bytes(), SAMPLE_PDF.name)
 
 
+@st.cache_resource
+def _get_cached_pipeline():
+    from src.pipeline_factory import get_pipeline
+
+    return get_pipeline()
+
+
 def render_chat() -> None:
     st.markdown("#### Ask")
     for msg in st.session_state["messages"]:
@@ -141,7 +148,7 @@ def render_chat() -> None:
 
     with st.spinner("Searching the document…"):
         try:
-            bundle = get_pipeline()
+            bundle = _get_cached_pipeline()
             answer = bundle.pipeline.answer_query(prompt)
         except Exception as exc:  # never let an unexpected failure kill the UI
             logger.exception("answer_query failed")
@@ -183,7 +190,7 @@ def render_sidebar() -> None:
                     f"- {stats.vectors_added} vectors\n- {stats.duration_s:.1f}s"
                 )
             if st.button("🔄 Upload a new document"):
-                bundle = get_pipeline()
+                bundle = _get_cached_pipeline()
                 bundle.pipeline.reset()
                 st.session_state.update(
                     messages=[], doc_id=None, doc_name=None, doc_state="empty",
