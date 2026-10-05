@@ -68,11 +68,27 @@ QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 # PII redaction (Presidio)
 SPACY_MODEL = "en_core_web_sm"   # small model: fits 4 GB RAM / Streamlit Cloud
 PII_SCORE_THRESHOLD = 0.4
+# Chunks overlap, so a label ("A/c No.") and the value it introduces can end up in
+# different chunks. This many trailing characters of each chunk are carried into the
+# next one for *matching only*, so a label-anchored pattern still sees its value.
+PII_CONTEXT_CARRY_CHARS = 80
 PII_ENTITIES = [
-    "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "IBAN_CODE",
-    "IP_ADDRESS", "US_SSN", "US_BANK_NUMBER", "AADHAAR_NUMBER", "PAN_NUMBER",
+    # Presidio built-ins
+    "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "IP_ADDRESS",
+    "US_SSN", "US_BANK_NUMBER", "IBAN_CODE",
+    # Indian identity
+    "PAN_NUMBER", "AADHAAR_NUMBER", "IN_PERSON_NAME", "IN_ADDRESS", "IN_PINCODE",
+    "VOTER_ID", "DL_NO", "PASSPORT_NO",
+    # Indian financial
+    "IN_ACCOUNT_NO", "IN_LOAN_NO", "IFSC_CODE", "MICR_CODE", "GSTIN", "UPI_ID",
+    "CHEQUE_NO", "POLICY_NO", "TAN_NUMBER", "APPLICATION_ID",
 ]
-# DATE_TIME and LOCATION are deliberately NOT redacted: loan answers depend on dates.
+# Deliberately NOT redacted:
+#   DATE_TIME - loan answers are about due dates, tenures and disbursement schedules.
+#   LOCATION - property and borrower city are facts the user asked for. The precise
+#               parts of an address are covered by IN_ADDRESS instead, so a bare
+#               city name stays readable while "S/o X, H.No. 12, Lucknow - 226010"
+#               does not.
 
 # Quota tracker
 QUOTA_STATE_PATH = os.path.join(os.path.dirname(__file__), "streamlit_quota.json")

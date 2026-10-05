@@ -85,7 +85,7 @@ def build_pipeline(
         embedding_model=None,
     )
     chunk = chunker or Chunker()
-    agg = aggregator or Aggregator()
+    agg = aggregator or Aggregator(scrubber=scrub)
     pipeline = RAGPipeline(
         vector_db=vec_db,
         retriever=pipe_retriever,

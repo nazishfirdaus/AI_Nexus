@@ -68,7 +68,7 @@ class RAGPipeline:
         self.scrubber = scrubber
         self.router = router
         self.llm_handler = llm_handler
-        self.aggregator = aggregator or Aggregator()
+        self.aggregator = aggregator or Aggregator(scrubber=scrubber)
         self.chunker = chunker or Chunker()
         self.embedder = embedder or embedder_module
         self.active_document_id: Optional[str] = None
@@ -163,7 +163,9 @@ class RAGPipeline:
             return self.aggregator.no_context(routing_reason="Reranker found no relevant context.")
 
         # 3) PII security gate: only scrubbed text may reach a provider
-        scrubbed_query, scrubbed_context = build_llm_inputs(query, reranked, self.scrubber)
+        scrubbed_query, scrubbed_context, scrubbed_by_page = build_llm_inputs(
+            query, reranked, self.scrubber
+        )
 
         # 4) Semantic routing (query only, no document content)
         route: RouteDecision = self.router.route(
@@ -193,6 +195,7 @@ class RAGPipeline:
             reranked,
             intent=route.intent,
             routing_reason=route.reason,
+            scrubbed_by_page=scrubbed_by_page,
         )
 
     @staticmethod

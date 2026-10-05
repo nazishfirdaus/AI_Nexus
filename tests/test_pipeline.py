@@ -21,6 +21,7 @@ from src.routing.semantic_router import RouteDecision
 
 AADHAAR = "2345 6789 0124"
 _AADHAAR_RE = re.compile(r"\b\d{4} \d{4} \d{4}\b")
+_ACCOUNT_RE = re.compile(r"(?:A/c|Account)\s*(?:No\.?|Number)?\s*:?\s*\d{8,20}", re.IGNORECASE)
 
 
 # ------------------------------------------------------------------ fakes
@@ -76,14 +77,26 @@ class FakeReranker:
 
 
 class FakeScrubber:
-    """Realistic stand-in: redacts 4-4-4-4 Aadhaar-like numbers."""
+    """Realistic stand-in: redacts Aadhaar-like numbers and an account number.
+
+    Honours context_prefix so a label carried over from the previous chunk still
+    counts, exactly as the real scrubber does.
+    """
 
     @staticmethod
-    def scrub(text):
+    def scrub(text, context_prefix=""):
         if isinstance(text, ScrubbedText):
             return text
-        cleaned = _AADHAAR_RE.sub("<AADHAAR_NUMBER>", text)
-        return ScrubbedText(cleaned)
+        combined = f"{context_prefix}\n{text}"
+        combined = _AADHAAR_RE.sub("<AADHAAR_NUMBER>", combined)
+        combined = _ACCOUNT_RE.sub("<IN_ACCOUNT_NO>", combined)
+        boundary = len(context_prefix) + 1
+        # A substitution that began inside the carry-over crosses the boundary; drop
+        # the carried part of it, the way the real scrubber rebases its results.
+        for placeholder in re.finditer(r"<[A-Z_]+>", combined):
+            if placeholder.start() < boundary < placeholder.end():
+                boundary = placeholder.end()
+        return ScrubbedText(combined[boundary:])
 
 
 class FakeRouter:
@@ -235,3 +248,22 @@ def test_provider_never_receives_raw_pii(pipeline, pdf_path):
     assert AADHAAR not in context_text
     assert AADHAAR not in query_text
     assert "<AADHAAR_NUMBER>" in context_text
+
+
+def test_provider_never_receives_account_number(pipeline, pdf_path):
+    """Same gate, for an Indian account number rather than an Aadhaar."""
+    page = pymupdf.open()
+    p = page.new_page()
+    p.insert_text(
+        (72, 72),
+        "Borrower savings A/c No. 30123456789 held with the lender. "
+        "This is a confidential document prepared for the underwriting "
+        "and credit review process only.",
+    )
+    page.save(str(pdf_path))
+    page.close()
+
+    pipeline.ingest_document(pdf_path)
+    pipeline.answer_query("What is the account number?")
+    _, context_text = pipeline.llm_handler.captured
+    assert "30123456789" not in context_text

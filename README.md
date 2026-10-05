@@ -33,7 +33,8 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 ## Features
 
 - **Hybrid retrieval** — dense (BGE-large) + BM25 fused with Reciprocal Rank Fusion, then a local cross-encoder rereank.
-- **PII security gate** — Presidio scrubber removes PERSON / AADHAAR / PAN / IBAN / SSN / phone / email / card / IP tokens before any LLM call (dates and locations are kept — loan answers depend on them).
+- **PII security gate** — a Presidio scrubber with custom Indian recognizers removes identifying tokens before any LLM call: names (including honorific-matched Indian names), addresses, phone, email, PAN, Aadhaar, voter ID, driving licence, passport, TAN, plus bank and loan account numbers, IFSC, MICR, GSTIN, UPI/VPA, cheque, policy and application numbers. Dates and bare city names are kept — loan and property answers depend on them — while the pinpoint parts of an address are not. The same scrubber also cleans the answer text and the page citation snippets, which are built from the unredacted stored chunks.
+- **Label-anchored account numbers** — an Indian account number is 8–20 bare digits, indistinguishable from a loan amount, so those patterns require a label ("A/c no.", "Loan A/c", "Cheque no.") next to the value. Because chunk boundaries can split a label from its value, each chunk is scrubbed with the tail of the previous one as matching context.
 - **Semantic routing** — the query intent picks the first provider; the rest of the chain follows the configured fallback order, so a provider outage degrades gracefully instead of failing.
 - **Citations** — every answer quotes the source pages it was built from.
 - **Quota / rate-limit tracking** — cooldowns stop runaway billing and abuse.
