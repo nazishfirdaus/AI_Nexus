@@ -19,3 +19,35 @@ SYSTEM_PROMPT = (
 )
 
 USER_PROMPT = "Question: {question}\n\nRetrieved context:\n{context}"
+
+SUMMARY_BLOCK = (
+    "\n\nConversation summary so far (older turns that are no longer shown verbatim):\n"
+    "{summary}"
+)
+
+REWRITE_PROMPT = (
+    "You rewrite a user's follow-up question into a standalone, self-contained "
+    "question that can be used to search a document.\n"
+    "Resolve pronouns and references (\"it\", \"that\", \"the second one\", \"the rate\") "
+    "using the conversation below.\n"
+    "Keep the user's original meaning and level of detail. Keep it concise.\n"
+    "Reply with ONLY the rewritten question - no preamble, no quotes, no explanation.\n"
+    "If the question is already standalone, reply with it unchanged."
+)
+
+SUMMARY_PROMPT = (
+    "You summarize a conversation between a user and a document question-answering "
+    "assistant.\n"
+    "Produce a short factual summary (max 150 words) covering: the topics asked "
+    "about, the key facts the assistant reported, and any preferences or focus the "
+    "user showed.\n"
+    "Do not invent anything that is not in the transcript. Reply with ONLY the "
+    "summary text."
+)
+
+
+def build_system_prompt(summary: str | None = None) -> str:
+    """The system prompt, optionally extended with the rolling conversation summary."""
+    if not summary:
+        return SYSTEM_PROMPT
+    return SYSTEM_PROMPT + SUMMARY_BLOCK.format(summary=summary)

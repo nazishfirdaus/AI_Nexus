@@ -26,6 +26,21 @@ class FakeAdapter(BaseAdapter):
         return self.result
 
 
+class FakeChatAdapter(BaseAdapter):
+    """Implements chat() so the default generate(query, context, history, summary)
+    path builds and forwards the full message list."""
+
+    def __init__(self, name="fakechat", result="ok"):
+        super().__init__(model=f"{name}-model", api_key="k")
+        self.name = name
+        self.result = result
+        self.captured = None
+
+    def chat(self, messages):
+        self.captured = messages
+        return self.result
+
+
 def handler(*adapters):
     return LLMHandler({a.name: a for a in adapters}, QuotaTracker(state_path=None))
 
@@ -133,6 +148,69 @@ def test_build_default_handler_reads_env(monkeypatch):
     assert h.available_providers == ["groq"]
 
 
+# ---------------- multi-turn memory ----------------
+HISTORY = [
+    {"role": "user", "content": ScrubbedText("What is the tenure?")},
+    {"role": "assistant", "content": ScrubbedText("20 years")},
+]
+
+
+def test_generate_without_history_builds_two_messages():
+    a = FakeChatAdapter()
+    handler(a).generate(Q, C, ["fakechat"])
+    assert [m["role"] for m in a.captured] == ["system", "user"]
+    assert "what is the loan amount?" in a.captured[1]["content"]
+
+
+def test_generate_with_history_builds_full_message_list():
+    a = FakeChatAdapter()
+    handler(a).generate(Q, C, ["fakechat"], history=HISTORY, summary=ScrubbedText("sum so far"))
+    roles = [m["role"] for m in a.captured]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert "sum so far" in a.captured[0]["content"]
+    assert a.captured[1] == HISTORY[0]
+    assert a.captured[2] == HISTORY[1]
+    assert "what is the loan amount?" in a.captured[3]["content"]
+
+
+def test_generate_rejects_unscrubbed_history():
+    h = handler(FakeChatAdapter())
+    with pytest.raises(TypeError):
+        h.generate(Q, C, ["fakechat"], history=[{"role": "user", "content": "raw pii"}])
+    with pytest.raises(TypeError):
+        h.generate(Q, C, ["fakechat"], summary="raw summary")
+
+
+def test_generate_messages_forwards_prebuilt_messages():
+    a = FakeChatAdapter()
+    messages = [
+        {"role": "system", "content": ScrubbedText("rewrite instructions")},
+        {"role": "user", "content": ScrubbedText("transcript")},
+    ]
+    r = handler(a).generate_messages(messages, ["fakechat"])
+    assert r.text == "ok"
+    assert a.captured == messages
+
+
+def test_generate_messages_rejects_bad_input():
+    h = handler(FakeChatAdapter())
+    with pytest.raises(TypeError):
+        h.generate_messages([], ["fakechat"])
+    with pytest.raises(TypeError):
+        h.generate_messages([{"role": "user", "content": "not scrubbed"}], ["fakechat"])
+    with pytest.raises(TypeError):
+        h.generate_messages([{"role": "tool", "content": ScrubbedText("x")}], ["fakechat"])
+
+
+def test_generate_messages_falls_back_like_generate():
+    good = FakeChatAdapter("good")
+    # an empty reply is a failure, so the chain must move on
+    h = LLMHandler({"bad": FakeChatAdapter("bad", result=""), "good": good},
+                   QuotaTracker(state_path=None))
+    r = h.generate_messages([{"role": "user", "content": ScrubbedText("x")}], ["bad", "good"])
+    assert r.provider == "good"
+
+
 # ---------------- quota error detection ----------------
 @pytest.mark.parametrize("msg", ["HTTP 429: too many", "Rate limit reached", "quota exceeded", "RESOURCE_EXHAUSTED"])
 def test_is_quota_error_true(msg):
@@ -225,6 +303,38 @@ def test_timeout_setting_is_passed(monkeypatch):
     seen = patch_post(monkeypatch, FakeResp(body={"choices": [{"message": {"content": "x"}}]}))
     GroqAdapter("m", "K", timeout=7).generate("q", "c")
     assert seen["timeout"] == 7
+
+
+# ---------------- history payloads on real adapters ----------------
+def test_openai_payload_contains_history_and_summary(monkeypatch):
+    seen = patch_post(monkeypatch, FakeResp(body={"choices": [{"message": {"content": "ok"}}]}))
+    history = [
+        {"role": "user", "content": "prev question"},
+        {"role": "assistant", "content": "prev answer"},
+    ]
+    GroqAdapter("m", "KEY").generate("q", "ctx", history=history, summary="summary text")
+    msgs = seen["json"]["messages"]
+    assert msgs[0]["role"] == "system"
+    assert "summary text" in msgs[0]["content"]
+    assert msgs[1] == {"role": "user", "content": "prev question"}
+    assert msgs[2] == {"role": "assistant", "content": "prev answer"}
+    assert msgs[3]["role"] == "user"
+    assert "ctx" in msgs[3]["content"]
+
+
+def test_gemini_payload_maps_history_roles(monkeypatch):
+    body = {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+    seen = patch_post(monkeypatch, FakeResp(body=body))
+    history = [
+        {"role": "user", "content": "prev question"},
+        {"role": "assistant", "content": "prev answer"},
+    ]
+    GeminiAdapter("gm", "KEY").generate("q", "ctx", history=history)
+    contents = seen["json"]["contents"]
+    # Gemini alternates user / model; the system prompt stays a systemInstruction.
+    assert [c["role"] for c in contents] == ["user", "model", "user"]
+    assert "systemInstruction" in seen["json"]
+    assert "prev answer" in contents[1]["parts"][0]["text"]
 
 
 # ---------------- SIMULATE_LLM parsing (CI sets SIMULATE_LLM=true) ----------------

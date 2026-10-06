@@ -39,13 +39,24 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 - **Citations** — every answer quotes the source pages it was built from.
 - **Quota / rate-limit tracking** — cooldowns stop runaway billing and abuse.
 - **Simulated LLM** — `SIMULATE_LLM=true` runs the whole pipeline (including tests and CI) with zero API keys.
+- **Multi-turn chat memory** - recent conversation history is windowed (last 6
+  messages, per-message cap) and fed to the model; once a chat passes 12
+  messages a rolling summary folds in the older turns. History and summaries
+  pass through the PII gate before any provider call.
+- **Follow-up resolution** - short or reference-heavy follow-ups ("What about
+  the second one?") are rewritten into standalone questions before retrieval,
+  with an automatic fallback to the raw query when the rewrite finds nothing.
+- **Persistent multiple conversations** - chats (titles, messages, citations,
+  summaries, and their document) are stored in SQLite under `chat_db/`. The
+  sidebar lists, renames and deletes conversations; they survive restarts and
+  the active document is re-attached from Chroma metadata without re-uploading.
 
 ## Tests
 
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 157 passing (default: real-model tests skipped)
+python -m pytest -q          # 255 passing (default: real-model tests skipped)
 ```
 
 Real-model tests (BGE embedder, live retrieval) can be run locally with:
@@ -85,9 +96,11 @@ src/
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker
   generation/    LLM handler w/ fallback, aggregator (citations)
+  memory/        SQLite chat store, history windows, follow-up rewriter
   rag_pipeline.py       end-to-end orchestrator
   pipeline_factory.py   dependency wiring (test doubles supported)
 config/          prompts, settings, quota state
+chat_db/         SQLite conversations + messages (created at runtime, gitignored)
 evaluation/      golden dataset + harness
 tests/           pytest suite (fakes; real-model tests gated by ANEXUS_RUN_REAL_TESTS)
 app.py           Streamlit UI
