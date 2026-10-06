@@ -27,23 +27,34 @@ from pathlib import Path
 from config import settings
 from src.ingestion.parser import parse_pdf
 from src.pipeline_factory import build_pipeline, reset_pipeline_cache
+from src.redaction.presidio_scrubber import scrub_chunks
 from src.retrieval.reranker import RankedChunk
 
 # PII token patterns mirrored from the scrubber so the eval can *detect* leaks
-# without depending on the scrubber's own thresholds.
+# without depending on the scrubber's own thresholds. Covers every identifier the
+# scrubber is meant to protect; a pattern that fires in an answer is a failure.
 _PII_PATTERNS = [
     r"\b\d{3}[- .]?\d{2}[- .]?\d{4}\b",              # US SSN
     r"\b\d{4}[- .]?\d{4}[- .]?\d{4}[- .]?\d{4}\b",    # credit card
     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",  # email
     r"\b(?:AADHAAR)?\d{12}\b",                        # Aadhaar
+    r"\b[A-Z]{5}\d{4}[A-Z]\b",                        # PAN
+    r"\b[A-Z]{4}0[A-Z0-9]{6}\b",                     # IFSC
+    r"\b\d{2}[A-Z]{5}\d{4}[A-Z]\dZ[A-Z\d]\b",         # GSTIN
+    r"\b[A-Z]{3}\d{7}\b",                             # EPIC / voter id
+    r"\b[A-Z]{4}\d{4}[A-Z]\d\b",                      # TAN
+    r"\b(?:a\s*/?\s*c|acc(?:ount)?|acct)\.?\s*(?:no\.?|number|num\.?)?\s*[:\-]?\s*\d{8,20}\b",
+    r"\bloan\s*(?:a\s*/?\s*c|acc(?:ount)?|acct)\.?\s*(?:no\.?|number|num\.?)?\s*[:\-]?\s*\d{8,20}\b",
 ]
 
 
 def leak_score(text: str) -> float:
     """Fraction of PII patterns that appear verbatim in the answer text."""
+    if not text:
+        return 0.0
     hits = 0
     for pattern in _PII_PATTERNS:
-        if re.search(pattern, text):
+        if re.search(pattern, text, flags=re.IGNORECASE):
             hits += 1
     return hits / len(_PII_PATTERNS)
 
@@ -117,7 +128,11 @@ def main() -> None:
         row["topk_pages"] = sorted({int(c.metadata.get("page_number")) for c in reranked if c.metadata.get("page_number") is not None})
         row["first_hit_rank"] = rank_of_first_hit
         row["expected_pages"] = sorted(expected_pages)
-        row["source_snippets"] = [c.content for c in reranked[:args.k]]
+        # Carry context across chunks so a label split from its value is still caught.
+        row["source_snippets"] = [
+            str(scrubbed)
+            for _, scrubbed in scrub_chunks(reranked[: args.k], bundle.scrubber)
+        ]
 
         # --- answer behaviour ---
         row["answer_text"] = answer.text

@@ -22,7 +22,7 @@ from src.generation.aggregator import Aggregator, FinalAnswer
 from src.generation.llm import LLMHandler
 from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
-from src.ingestion.parser import parse_pdf
+# parse_pdf imported lazily in ingest_document to reduce startup cost
 from src.ingestion.vectordb import VectorDB
 from src.redaction.presidio_scrubber import PresidioScrubber, build_llm_inputs
 from src.retrieval.reranker import CrossEncoderReranker, RankedChunk
@@ -68,7 +68,7 @@ class RAGPipeline:
         self.scrubber = scrubber
         self.router = router
         self.llm_handler = llm_handler
-        self.aggregator = aggregator or Aggregator()
+        self.aggregator = aggregator or Aggregator(scrubber=scrubber)
         self.chunker = chunker or Chunker()
         self.embedder = embedder or embedder_module
         self.active_document_id: Optional[str] = None
@@ -92,6 +92,8 @@ class RAGPipeline:
         """Parse -> chunk -> embed -> store -> rebuild BM25. Resets any previous doc."""
         pdf_path = Path(pdf_path)
         start = time.perf_counter()
+        from src.ingestion.parser import parse_pdf
+
         page_documents = parse_pdf(pdf_path)
         if not page_documents:
             raise ValueError(f"No text could be extracted from {pdf_path.name}")
@@ -161,7 +163,9 @@ class RAGPipeline:
             return self.aggregator.no_context(routing_reason="Reranker found no relevant context.")
 
         # 3) PII security gate: only scrubbed text may reach a provider
-        scrubbed_query, scrubbed_context = build_llm_inputs(query, reranked, self.scrubber)
+        scrubbed_query, scrubbed_context, scrubbed_by_page = build_llm_inputs(
+            query, reranked, self.scrubber
+        )
 
         # 4) Semantic routing (query only, no document content)
         route: RouteDecision = self.router.route(
@@ -191,6 +195,7 @@ class RAGPipeline:
             reranked,
             intent=route.intent,
             routing_reason=route.reason,
+            scrubbed_by_page=scrubbed_by_page,
         )
 
     @staticmethod

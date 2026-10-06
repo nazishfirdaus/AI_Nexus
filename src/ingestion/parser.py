@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from pathlib import Path
 import io
 import re
+from typing import TYPE_CHECKING
 
 import pymupdf
-import pytesseract
-from PIL import Image
 from langchain_core.documents import Document
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 from config.settings import (
     MIN_TEXT_LENGTH_FOR_OCR,
@@ -68,7 +72,8 @@ def has_sufficient_text(
 def render_page_to_image(
     page: pymupdf.Page,
     dpi: int = OCR_DPI,
-) -> Image.Image:
+):
+
     """
     Render a PDF page as a PIL image.
 
@@ -89,6 +94,8 @@ def render_page_to_image(
 
     image_bytes = pixmap.tobytes("png")
 
+    from PIL import Image
+
     image = Image.open(
         io.BytesIO(image_bytes)
     )
@@ -108,6 +115,8 @@ def extract_text_with_ocr(
         page,
         dpi=dpi,
     )
+
+    import pytesseract
 
     text = pytesseract.image_to_string(
         image

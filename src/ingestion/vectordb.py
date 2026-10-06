@@ -15,11 +15,14 @@ import logging
 import threading
 from typing import Iterable, List, Optional
 
-from chromadb import PersistentClient
-from chromadb.api.models.Collection import Collection
 from langchain_core.documents import Document
+from typing import TYPE_CHECKING
 
 from config.settings import CHROMA_PERSIST_DIRECTORY, COLLECTION_NAME
+
+if TYPE_CHECKING:
+    from chromadb import PersistentClient
+    from chromadb.api.models.Collection import Collection
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,8 @@ class VectorDB:
             self._client = client
             self._own_client = False
         else:
+            from chromadb import PersistentClient
+
             self._client = PersistentClient(path=persist_directory)
             self._own_client = True
         self._collection = self._client.get_or_create_collection(collection_name)

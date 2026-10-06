@@ -10,16 +10,20 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from src.generation.aggregator import Aggregator
-from src.generation.llm import LLMHandler, build_default_handler
-from src.ingestion.chunker import Chunker
-from src.ingestion.vectordb import VectorDB
-from src.rag_pipeline import RAGPipeline
-from src.redaction.presidio_scrubber import PresidioScrubber, get_scrubber
-from src.retrieval.reranker import CrossEncoderReranker
-from src.retrieval.retriever import HybridRetriever
-from src.routing.quota_tracker import QuotaTracker
-from src.routing.semantic_router import SemanticRouter
+# Imports deferred into build_pipeline to reduce startup cost
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.generation.aggregator import Aggregator
+    from src.generation.llm import LLMHandler
+    from src.ingestion.chunker import Chunker
+    from src.ingestion.vectordb import VectorDB
+    from src.rag_pipeline import RAGPipeline
+    from src.redaction.presidio_scrubber import PresidioScrubber
+    from src.retrieval.reranker import CrossEncoderReranker
+    from src.retrieval.retriever import HybridRetriever
+    from src.routing.quota_tracker import QuotaTracker
+    from src.routing.semantic_router import SemanticRouter
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,17 @@ def build_pipeline(
     embedder=None,
 ) -> PipelineBundle:
     """Wire a complete pipeline, defaulting every part to the production component."""
+    from src.generation.aggregator import Aggregator
+    from src.generation.llm import build_default_handler
+    from src.ingestion.chunker import Chunker
+    from src.ingestion.vectordb import VectorDB
+    from src.rag_pipeline import RAGPipeline
+    from src.redaction.presidio_scrubber import get_scrubber
+    from src.retrieval.reranker import CrossEncoderReranker
+    from src.retrieval.retriever import HybridRetriever
+    from src.routing.quota_tracker import QuotaTracker
+    from src.routing.semantic_router import SemanticRouter
+
     tracker = quota_tracker or QuotaTracker()
     vec_db = vector_db or VectorDB()
     rerank = reranker or CrossEncoderReranker()
@@ -70,7 +85,7 @@ def build_pipeline(
         embedding_model=None,
     )
     chunk = chunker or Chunker()
-    agg = aggregator or Aggregator()
+    agg = aggregator or Aggregator(scrubber=scrub)
     pipeline = RAGPipeline(
         vector_db=vec_db,
         retriever=pipe_retriever,
