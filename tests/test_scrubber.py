@@ -232,9 +232,20 @@ def test_build_llm_inputs_scrubs_query_and_chunks_keeps_pages(scrubber):
     assert isinstance(q, ScrubbedText) and isinstance(ctx, ScrubbedText)
     assert "Rahul" not in q and "Rahul" not in ctx and "6789" not in ctx
     assert "[Page 2]" in ctx and "[Page 5]" in ctx and "4,50,000" in ctx
-    # The page map carries the same scrubbed text the aggregator builds snippets from.
-    assert set(pages) == {2, 5}
-    assert "Rahul" not in pages[2] and "4,50,000" in pages[5]
+    # The page map carries the same scrubbed text the aggregator builds snippets
+    # from, keyed by (document_id, page) so two documents never collide.
+    assert set(pages) == {("", 2), ("", 5)}
+    assert "Rahul" not in pages[("", 2)] and "4,50,000" in pages[("", 5)]
+
+
+def test_build_llm_inputs_labels_blocks_with_the_source_document(scrubber):
+    """Multi-doc context: every block shows which document it came from."""
+    chunk = Chunk("Loan amount is 4,50,000.", 1)
+    chunk.metadata.update({"document_id": "agreement", "filename": "agreement.pdf"})
+    _, ctx, pages = build_llm_inputs("What is the loan amount?", [chunk], scrubber)
+    assert "[Doc: agreement.pdf | Page 1]" in ctx
+    assert set(pages) == {("agreement", 1)}
+    assert "4,50,000" in pages[("agreement", 1)]
 
 
 def test_account_number_is_redacted_when_chunking_splits_it_from_its_label(scrubber):

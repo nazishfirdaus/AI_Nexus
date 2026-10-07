@@ -5,7 +5,8 @@ retriever builds its BM25 index from `get_all_documents()`.
 
 Interface used elsewhere:
   * add_chunks(documents, embeddings)
-  * search(query_embedding, k) -> list[Document]
+  * search(query_embedding, k, where=None) -> list[Document]
+  * delete_document(document_id)
   * reset()
   * get_all_documents() -> list[Document]
 """
@@ -110,14 +111,24 @@ class VectorDB:
         logger.info("Added %d chunk(s) to Chroma collection %s", len(ids), self._collection_name)
         return len(ids)
 
-    def search(self, query_embedding: Iterable[float], k: int = 10) -> List[Document]:
-        """K-nearest-neighbour search; returns Documents with metadata + distance score."""
+    def search(
+        self,
+        query_embedding: Iterable[float],
+        k: int = 10,
+        where: Optional[dict] = None,
+    ) -> List[Document]:
+        """K-nearest-neighbour search; returns Documents with metadata + distance score.
+
+        `where` is an optional Chroma metadata filter (e.g. {"document_id": "x"})
+        to restrict the search to a subset of the corpus.
+        """
         if k <= 0:
             return []
         try:
             result = self._collection.query(
                 query_embeddings=[list(query_embedding)],
                 n_results=k,
+                where=where,
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as e:
@@ -135,6 +146,36 @@ class VectorDB:
             md["distance"] = float(distance)
             docs.append(Document(page_content=text or "", metadata=md))
         return docs
+
+    def delete_document(self, document_id: str) -> int:
+        """Remove every chunk belonging to one document. Returns chunks removed."""
+        try:
+            self._collection.delete(where={"document_id": document_id})
+        except Exception:
+            logger.exception("Could not delete chunks of document %s", document_id)
+            raise
+        remaining = self._collection.count()
+        logger.info(
+            "Deleted document %s from Chroma collection %s (%d chunk(s) left)",
+            document_id,
+            self._collection_name,
+            remaining,
+        )
+        return remaining
+
+    def document_ids(self) -> List[str]:
+        """Distinct document_ids currently stored (used to reconcile the registry)."""
+        try:
+            result = self._collection.get(include=["metadatas"])
+        except Exception:
+            logger.exception("Could not read document ids from Chroma")
+            return []
+        ids = {
+            str(meta.get("document_id"))
+            for meta in (result.get("metadatas") or [])
+            if meta and meta.get("document_id") is not None
+        }
+        return sorted(ids)
 
     def reset(self) -> None:
         """Drop the current collection and recreate it empty (new-document behavior)."""

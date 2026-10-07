@@ -36,10 +36,18 @@ class FakeVectorDB:
         self.store = []
 
     def add_chunks(self, documents, embeddings):
-        self.store = list(documents)
+        self.store.extend(documents)  # append: multiple documents share the corpus
         return len(documents)
 
-    def search(self, query_embedding, k):
+    def delete_document(self, document_id):
+        before = len(self.store)
+        self.store = [
+            d for d in self.store
+            if (d.metadata or {}).get("document_id") != document_id
+        ]
+        return before - len(self.store)
+
+    def search(self, query_embedding, k, where=None):
         return self.store[:k]
 
     def get_all_documents(self):
@@ -168,12 +176,13 @@ class FakeEmbedder:
 
 
 # ------------------------------------------------------------------ helpers
-def make_pdf(path):
+def make_pdf(path, text=None):
     doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text(
         (72, 72),
-        "Borrower is Rahul Sharma. Loan amount is 4,50,000. Interest rate is "
+        text
+        or "Borrower is Rahul Sharma. Loan amount is 4,50,000. Interest rate is "
         "7.25 per cent per annum. Repayment tenure is 20 years.",
     )
     doc.save(str(path))
@@ -485,38 +494,126 @@ def _vector_db_with(*metadatas):
     return db
 
 
-def test_restore_active_document_from_chunk_metadata():
+def test_restore_documents_from_chunk_metadata():
     db = _vector_db_with(
-        {"document_id": "loan_doc", "filename": "loan.pdf"},
-        {"document_id": "loan_doc", "filename": "loan.pdf"},
+        {"document_id": "loan_doc", "filename": "loan.pdf", "page_number": 1},
+        {"document_id": "loan_doc", "filename": "loan.pdf", "page_number": 2},
     )
     pipe = build(vector_db=db)
-    assert pipe.active_document_id is None
-    assert pipe.restore_active_document() is True
+    restored = pipe.restore_documents()
+    assert [d["id"] for d in restored] == ["loan_doc"]
+    assert restored[0]["filename"] == "loan.pdf"
+    assert restored[0]["chunks"] == 2
     assert pipe.active_document_id == "loan_doc"
     assert pipe.active_filename == "loan.pdf"
     assert pipe.has_document
-    # already active: no-op
-    assert pipe.restore_active_document() is False
 
 
-def test_restore_refuses_to_guess_with_mixed_documents():
+def test_restore_documents_returns_all_documents():
     db = _vector_db_with(
-        {"document_id": "a", "filename": "a.pdf"},
-        {"document_id": "b", "filename": "b.pdf"},
+        {"document_id": "a", "filename": "a.pdf", "page_number": 1},
+        {"document_id": "a", "filename": "a.pdf", "page_number": 2},
+        {"document_id": "b", "filename": "b.pdf", "page_number": 1},
     )
     pipe = build(vector_db=db)
-    assert pipe.restore_active_document() is False
-    assert pipe.active_document_id is None
+    restored = pipe.restore_documents()
+    assert {d["id"] for d in restored} == {"a", "b"}
+    assert {d["filename"] for d in restored} == {"a.pdf", "b.pdf"}
+    # restoring twice must not duplicate registry rows
+    assert len(pipe.restore_documents()) == 2
+    assert len(pipe.list_documents()) == 2
 
 
-def test_restore_refuses_incomplete_metadata():
+def test_restore_drops_registry_rows_without_chunks():
+    db = _vector_db_with({"document_id": "alive", "filename": "alive.pdf", "page_number": 1})
+    pipe = build(vector_db=db)
+    pipe.document_store.add("ghost", "ghost.pdf", pages=3, chunks=9, vectors=9)
+    restored = pipe.restore_documents()
+    assert [d["id"] for d in restored] == ["alive"]
+    assert pipe.document_store.get("ghost") is None
+
+
+def test_restore_skips_chunks_without_document_id():
     db = _vector_db_with({"page_number": 1}, {"page_number": 2})
     pipe = build(vector_db=db)
-    assert pipe.restore_active_document() is False
+    assert pipe.restore_documents() == []
+    assert pipe.list_documents() == []
     assert pipe.active_document_id is None
 
 
-def test_restore_with_empty_vectordb_is_false():
+def test_restore_with_empty_vectordb_is_empty():
     pipe = build()
-    assert pipe.restore_active_document() is False
+    assert pipe.restore_documents() == []
+
+
+# ------------------------------------------------------------------ multi-document
+def _second_pdf(tmp_path):
+    other = tmp_path / "second_loan.pdf"
+    make_pdf(other, "Prepayment penalty is 2 percent of the outstanding principal.")
+    return other
+
+
+def test_multiple_documents_share_one_corpus(pipeline, pdf_path, tmp_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.ingest_document(_second_pdf(tmp_path))
+
+    documents = pipeline.list_documents()
+    assert [d["filename"] for d in documents] == ["tiny_loan.pdf", "second_loan.pdf"]
+    assert pipeline.has_document
+
+    ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
+    assert ids == {"tiny_loan", "second_loan"}
+
+
+def test_ingest_uses_source_name_for_identity(pipeline, pdf_path, tmp_path):
+    """The UI uploads a temp file; identity must come from the original name."""
+    tmp = tmp_path / "anexus_upload_1700000000.pdf"
+    tmp.write_bytes(pdf_path.read_bytes())
+    result = pipeline.ingest_document(tmp, source_name="borrower_agreement.pdf")
+    assert result.document_id == "borrower_agreement"
+    assert result.filename == "borrower_agreement.pdf"
+    assert pipeline.list_documents()[0]["filename"] == "borrower_agreement.pdf"
+
+
+def test_reingesting_same_document_replaces_instead_of_duplicating(pipeline, pdf_path):
+    first = pipeline.ingest_document(pdf_path)
+    second = pipeline.ingest_document(pdf_path)
+    assert pipeline.vector_db.count() == second.chunks == first.chunks
+    assert len(pipeline.list_documents()) == 1
+
+
+def test_answer_citations_carry_the_source_document(pipeline, pdf_path, tmp_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.ingest_document(_second_pdf(tmp_path))
+
+    answer = pipeline.answer_query("What is the interest rate?")
+    assert answer.citations
+    for citation in answer.citations:
+        assert citation.document_id in {"tiny_loan", "second_loan"}
+        assert citation.filename in {"tiny_loan.pdf", "second_loan.pdf"}
+    # same page number in two documents must never collapse into one citation
+    keys = {(c.document_id, c.page_number) for c in answer.citations}
+    assert len(keys) == len(answer.citations)
+    assert len(answer.citations) >= 2
+
+
+def test_remove_document_keeps_the_others(pipeline, pdf_path, tmp_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.ingest_document(_second_pdf(tmp_path))
+
+    pipeline.remove_document("second_loan")
+
+    assert [d["id"] for d in pipeline.list_documents()] == ["tiny_loan"]
+    ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
+    assert ids == {"tiny_loan"}
+    assert pipeline.vector_db.count() >= 1
+
+
+def test_removing_every_document_clears_state(pipeline, pdf_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.remove_document("tiny_loan")
+    assert pipeline.list_documents() == []
+    assert not pipeline.has_document
+    assert pipeline.active_document_id is None
+    answer = pipeline.answer_query("What is the rate?")
+    assert answer.text == NO_CONTEXT_ANSWER

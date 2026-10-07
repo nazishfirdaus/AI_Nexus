@@ -80,10 +80,12 @@ def main() -> None:
     if not pdf_path.exists():
         raise SystemExit(f"PDF not found: {pdf_path}")
 
-    # One fresh pipeline per run; no cross-run Chroma pollution.
+    # One fresh pipeline per run; no cross-run Chroma pollution. Ingestion is
+    # append-mode now, so the corpus is cleared explicitly before the eval PDF.
     reset_pipeline_cache()
     bundle = build_pipeline()
     pipeline = bundle.pipeline
+    pipeline.reset()
 
     ingest_start = time.perf_counter()
     ing = pipeline.ingest_document(pdf_path)

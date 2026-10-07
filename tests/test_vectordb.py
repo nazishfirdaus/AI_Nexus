@@ -5,15 +5,16 @@ from langchain_core.documents import Document
 from src.ingestion.vectordb import VectorDB
 
 
-def make_docs(n=3):
+def make_docs(n=3, document_id="d1", prefix="d1"):
     return [
         Document(
             page_content=f"Chunk {i} — loan amount for page {i}.",
             metadata={
-                "chunk_id": f"d1_p{i}_c1",
-                "document_id": "d1",
+                "chunk_id": f"{prefix}_p{i}_c1",
+                "document_id": document_id,
                 "page_number": i,
-                "source": "loan.pdf",
+                "filename": f"{document_id}.pdf",
+                "source": f"{document_id}.pdf",
                 "ocr_used": i % 2 == 0,
             },
         )
@@ -87,3 +88,43 @@ def test_reset_clears_collection(db):
     # Store is usable after reset.
     db.add_chunks(make_docs(1), make_embeddings(1))
     assert db.count() == 1
+
+
+# ---------------------------------------------------------- multi-document
+def test_two_documents_coexist(db):
+    db.add_chunks(make_docs(3), make_embeddings(3))
+    db.add_chunks(
+        make_docs(2, document_id="d2", prefix="d2"),
+        make_embeddings(2),
+    )
+    assert db.count() == 5
+    assert db.document_ids() == ["d1", "d2"]
+
+
+def test_delete_document_removes_only_its_chunks(db):
+    db.add_chunks(make_docs(3), make_embeddings(3))
+    db.add_chunks(
+        make_docs(2, document_id="d2", prefix="d2"),
+        make_embeddings(2),
+    )
+    db.delete_document("d2")
+    assert db.count() == 3
+    assert db.document_ids() == ["d1"]
+    assert {d.metadata["document_id"] for d in db.get_all_documents()} == {"d1"}
+
+
+def test_delete_unknown_document_is_harmless(db):
+    db.add_chunks(make_docs(1), make_embeddings(1))
+    db.delete_document("never_uploaded")
+    assert db.count() == 1
+
+
+def test_search_with_metadata_filter_restricts_corpus(db):
+    db.add_chunks(make_docs(3), make_embeddings(3))
+    db.add_chunks(
+        make_docs(2, document_id="d2", prefix="d2"),
+        make_embeddings(2),
+    )
+    out = db.search([1.0, 0.0, 0.0, 1.0], k=10, where={"document_id": "d2"})
+    assert out
+    assert {d.metadata["document_id"] for d in out} == {"d2"}
