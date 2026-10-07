@@ -95,3 +95,11 @@ QUOTA_STATE_PATH = os.path.join(os.path.dirname(__file__), "streamlit_quota.json
 RATE_LIMIT_COOLDOWN_S = 60
 ERROR_COOLDOWN_S = 20
 MAX_COOLDOWN_S = 900
+
+# Chat memory
+CHAT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chat_db", "chats.sqlite3")
+HISTORY_MAX_TURNS = 6              # most recent messages sent to the LLM verbatim
+HISTORY_MAX_MESSAGE_CHARS = 1000   # per-message cap inside the history window
+HISTORY_SUMMARY_TRIGGER = 12       # messages before a rolling summary is maintained
+QUERY_REWRITE_ENABLED = True       # heuristic-gated follow-up resolution
+REWRITE_MAX_WORDS = 6              # queries this short are treated as follow-ups
