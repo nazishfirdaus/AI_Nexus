@@ -25,6 +25,7 @@ from src.generation.aggregator import Aggregator, FinalAnswer
 from src.generation.llm import LLMHandler, ScrubbedText
 from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
+from src.ingestion.document_store import DocumentStore
 # parse_pdf imported lazily in ingest_document to reduce startup cost
 from src.ingestion.vectordb import VectorDB
 from src.memory.history import (
@@ -70,6 +71,7 @@ class RAGPipeline:
         aggregator: Optional[Aggregator] = None,
         chunker: Optional[Chunker] = None,
         embedder=None,
+        document_store: Optional[DocumentStore] = None,
     ) -> None:
         self.vector_db = vector_db
         self.retriever = retriever
@@ -80,37 +82,67 @@ class RAGPipeline:
         self.aggregator = aggregator or Aggregator(scrubber=scrubber)
         self.chunker = chunker or Chunker()
         self.embedder = embedder or embedder_module
+        # In-memory default: unit tests construct RAGPipeline directly and must
+        # never write to the real chat database. The factory injects the shared store.
+        self.document_store = document_store or DocumentStore(":memory:")
         self.rewriter = QueryRewriter(llm_handler, scrubber=self.scrubber)
+        # Most recently ingested document (kept for display/back-compat).
         self.active_document_id: Optional[str] = None
         self.active_filename: Optional[str] = None
 
     # ------------------------------------------------------------------- state
     @property
     def has_document(self) -> bool:
-        return self.active_document_id is not None and self.vector_db.count() > 0
+        return bool(self.list_documents()) and self.vector_db.count() > 0
+
+    def list_documents(self) -> list[dict]:
+        """Every ingested document, oldest first."""
+        return self.document_store.list()
 
     def reset(self) -> None:
-        """New-document reset: drop vectors/BM25 and forget the active document."""
+        """Clear-all: drop vectors/BM25, the registry and the active document."""
         self.vector_db.reset()
         self.retriever.reset()
+        self.document_store.clear()
         self.active_document_id = None
         self.active_filename = None
         logger.info("RAG pipeline state reset")
 
     # ---------------------------------------------------------------- ingestion
-    def ingest_document(self, pdf_path: str | Path) -> IngestionResult:
-        """Parse -> chunk -> embed -> store -> rebuild BM25. Resets any previous doc."""
+    def ingest_document(
+        self, pdf_path: str | Path, source_name: Optional[str] = None
+    ) -> IngestionResult:
+        """Parse -> chunk -> embed -> store -> rebuild BM25.
+
+        Appends to the existing corpus: previously uploaded documents stay
+        searchable. Re-ingesting a document id that is already stored replaces
+        it instead of duplicating its chunks.
+
+        `source_name` is the user-facing filename. The UI saves uploads under a
+        temp name, so without it the document identity would be the temp stem
+        (`anexus_upload_...`) and two different PDFs could alias each other.
+        """
         pdf_path = Path(pdf_path)
+        filename = source_name or pdf_path.name
+        document_id = Path(filename).stem
         start = time.perf_counter()
         from src.ingestion.parser import parse_pdf
 
         page_documents = parse_pdf(pdf_path)
         if not page_documents:
-            raise ValueError(f"No text could be extracted from {pdf_path.name}")
+            raise ValueError(f"No text could be extracted from {filename}")
+
+        # Re-bind identity to the original filename (parser only sees the temp path).
+        for page in page_documents:
+            meta = dict(page.metadata or {})
+            meta["document_id"] = document_id
+            meta["filename"] = filename
+            meta["source"] = filename
+            page.metadata = meta
 
         chunks = self.chunker.split(page_documents)
         if not chunks:
-            raise ValueError(f"No usable chunks were produced from {pdf_path.name}")
+            raise ValueError(f"No usable chunks were produced from {filename}")
 
         vectors = self.embedder.embed_documents(chunks)
         if len(vectors) != len(chunks):
@@ -118,18 +150,26 @@ class RAGPipeline:
                 f"Embedding mismatch: {len(chunks)} chunks, {len(vectors)} vectors"
             )
 
-        # A brand-new PDF replaces any previous active document.
-        self.vector_db.reset()
-        self.retriever.reset()
+        # Append mode: only this document's previous chunks are dropped, then the
+        # BM25 index is rebuilt from the *whole* corpus (all documents).
+        self.vector_db.delete_document(document_id)
         self.vector_db.add_chunks(chunks, vectors)
-        self.retriever.rebuild_bm25(chunks)
+        self.retriever.rebuild_bm25(self.vector_db.get_all_documents())
 
-        self.active_document_id = str(pdf_path.stem)
-        self.active_filename = pdf_path.name
+        self.active_document_id = document_id
+        self.active_filename = filename
         duration = time.perf_counter() - start
+        self.document_store.add(
+            document_id,
+            filename,
+            pages=len(page_documents),
+            chunks=len(chunks),
+            vectors=len(vectors),
+            duration_s=duration,
+        )
         logger.info(
             "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs",
-            pdf_path.name,
+            filename,
             len(page_documents),
             len(chunks),
             duration,
@@ -137,11 +177,23 @@ class RAGPipeline:
         return IngestionResult(
             pages=len(page_documents),
             chunks=len(chunks),
-            document_id=self.active_document_id,
-            filename=self.active_filename,
+            document_id=document_id,
+            filename=filename,
             duration_s=duration,
             vectors_added=len(vectors),
         )
+
+    def remove_document(self, document_id: str) -> bool:
+        """Delete one document's chunks and registry entry. Others stay intact."""
+        self.vector_db.delete_document(document_id)
+        self.document_store.remove(document_id)
+        self.retriever.rebuild_bm25(self.vector_db.get_all_documents())
+        if self.active_document_id == document_id:
+            remaining = self.document_store.list()
+            last = remaining[-1] if remaining else None
+            self.active_document_id = last["id"] if last else None
+            self.active_filename = last["filename"] if last else None
+        return True
 
     # ----------------------------------------------------------------- queries
     def answer_query(
@@ -150,7 +202,7 @@ class RAGPipeline:
         chat_history: Optional[list[dict]] = None,
         conversation_summary: Optional[str] = None,
     ) -> FinalAnswer:
-        """Answer a question against the active document.
+        """Answer a question against every uploaded document.
 
         `chat_history` is the prior conversation (oldest first, current prompt
         excluded) and `conversation_summary` is the rolling summary of turns
@@ -162,7 +214,7 @@ class RAGPipeline:
 
         if not self.has_document:
             return self.aggregator.no_context(
-                routing_reason="No document is active yet."
+                routing_reason="No documents are uploaded yet."
             )
 
         # 0) Memory: window the history and scrub it (PII gate applies to the
@@ -277,32 +329,70 @@ class RAGPipeline:
             return None
         return text
 
-    def restore_active_document(self) -> bool:
-        """Re-attach the active document after a restart, if its vectors remain.
+    def restore_documents(self) -> list[dict]:
+        """Re-attach stored documents after a restart, if their vectors remain.
 
-        Chroma persists on disk but active_document_id/filename are process
-        state. Chunks carry document_id + filename metadata, so a single
-        stored document can be identified without re-uploading. BM25 rebuilds
+        Chroma persists on disk but the registry and BM25 are rebuilt. The
+        registry is the source of truth when it has rows; otherwise (upgrade
+        from the single-document version, or a wiped registry) the document
+        list is reconstructed from chunk metadata and backfilled. Registry rows
+        whose chunks are gone are dropped.
+
+        Returns the restored document records (oldest first); BM25 rebuilds
         lazily on first retrieval.
         """
-        if self.active_document_id is not None:
-            return False
         try:
-            docs = self.vector_db.get_all_documents()
+            stored_chunks = self.vector_db.get_all_documents()
         except Exception:
             logger.exception("Could not read stored documents for restore")
-            return False
-        if not docs:
-            return False
-        ids = {(d.metadata or {}).get("document_id") for d in docs}
-        names = {(d.metadata or {}).get("filename") for d in docs}
-        if len(ids) != 1 or len(names) != 1 or None in ids or None in names:
-            return False  # mixed or incomplete metadata: do not guess
-        self.active_document_id = ids.pop()
-        self.active_filename = names.pop()
-        logger.info("Restored active document %s (%s)", self.active_document_id,
-                    self.active_filename)
-        return True
+            return []
+        if not stored_chunks:
+            if self.document_store.list():
+                self.document_store.clear()
+            return []
+
+        grouped: dict[str, dict] = {}
+        for doc in stored_chunks:
+            meta = doc.metadata or {}
+            doc_id = meta.get("document_id")
+            if not doc_id:
+                continue
+            group = grouped.setdefault(
+                str(doc_id),
+                {"filename": meta.get("filename") or str(doc_id), "pages": set(), "chunks": 0},
+            )
+            group["chunks"] += 1
+            if meta.get("page_number") is not None:
+                group["pages"].add(meta["page_number"])
+
+        existing = {r["id"]: r for r in self.document_store.list()}
+        restored: list[dict] = []
+        for doc_id, group in grouped.items():
+            record = existing.get(doc_id)
+            if record is None:
+                record = self.document_store.add(
+                    doc_id,
+                    group["filename"],
+                    pages=len(group["pages"]),
+                    chunks=group["chunks"],
+                    vectors=group["chunks"],
+                )
+            restored.append(record)
+            self.active_document_id = record["id"]
+            self.active_filename = record["filename"]
+
+        # Drop registry rows whose chunks no longer exist (drift).
+        for doc_id in existing:
+            if doc_id not in grouped:
+                self.document_store.remove(doc_id)
+
+        if restored:
+            logger.info(
+                "Restored %d document(s): %s",
+                len(restored),
+                ", ".join(r["filename"] for r in restored),
+            )
+        return restored
 
     # ----------------------------------------------------------------- memory
     def _scrub_optional(self, text: Optional[str]) -> Optional[str]:

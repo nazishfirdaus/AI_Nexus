@@ -744,11 +744,14 @@ def build_llm_inputs(
     """Scrub the query and every chunk (RankedChunk-like: .content, .metadata).
 
     Page labels come from metadata (not scrubbed text), so citations stay intact.
+    With several documents in play each block is prefixed with the source
+    filename, letting the model attribute facts to the right document.
 
     Returns (scrubbed_query, scrubbed_context, scrubbed_by_page) ready for
-    LLMHandler.generate(). The third element maps page number to that page's already
-    scrubbed text: the aggregator builds its citation snippets from it, so a snippet
-    shows exactly what the model was given and can never re-expose raw PII.
+    LLMHandler.generate(). The third element maps (document_id, page number) to
+    that page's already scrubbed text: the aggregator builds its citation
+    snippets from it, so a snippet shows exactly what the model was given and
+    can never re-expose raw PII.
     """
     scrubber = scrubber or get_scrubber()
     scrubbed_query = scrubber.scrub(query)
@@ -756,11 +759,19 @@ def build_llm_inputs(
     parts: list[str] = []
     by_page: dict = {}
     for c, scrubbed in scrub_chunks(list(chunks), scrubber, initial_context=query):
-        page = (getattr(c, "metadata", None) or {}).get("page_number", "?")
-        parts.append(f"[Page {page}]\n{scrubbed}")
-        by_page.setdefault(page, []).append(str(scrubbed))
+        meta = getattr(c, "metadata", None) or {}
+        page = meta.get("page_number", "?")
+        filename = meta.get("filename") or meta.get("document_id")
+        label = f"[Doc: {filename} | Page {page}]" if filename else f"[Page {page}]"
+        try:  # match the aggregator's (document_id, int(page)) citation key
+            page_key: object = int(page)
+        except (TypeError, ValueError):
+            page_key = page
+        key = (str(meta.get("document_id") or ""), page_key)
+        parts.append(f"{label}\n{scrubbed}")
+        by_page.setdefault(key, []).append(str(scrubbed))
     return (
         scrubbed_query,
         ScrubbedText("\n\n".join(parts)),
-        {page: "\n".join(texts) for page, texts in by_page.items()},
+        {key: "\n".join(texts) for key, texts in by_page.items()},
     )

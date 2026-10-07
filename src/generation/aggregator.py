@@ -2,7 +2,8 @@
 
 Combines an LLMResponse with the reranked source chunks into a FinalAnswer whose
 citations are derived *only* from the reranked (and therefore actually-retrieved)
-chunks. Page numbers are deduplicated and sorted by rerank score.
+chunks. Sources are deduplicated per (document, page) and sorted by rerank score,
+so the same page number coming from two different documents stays distinct.
 
 Both the answer text and every citation snippet are scrubbed on the way out. The
 chunks these snippets are built from are the raw stored text, so without this step
@@ -23,8 +24,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 NO_CONTEXT_ANSWER = (
-    "The answer is not available in the uploaded document. "
-    "Please ask about information contained in the document."
+    "The answer is not available in the uploaded documents. "
+    "Please ask about information contained in the uploaded documents."
 )
 
 
@@ -33,9 +34,17 @@ class Citation:
     page_number: int
     score: float
     snippet: str
+    document_id: str = ""
+    filename: str = ""
 
     def to_dict(self) -> dict:
-        return {"page_number": self.page_number, "score": self.score, "snippet": self.snippet}
+        return {
+            "page_number": self.page_number,
+            "score": self.score,
+            "snippet": self.snippet,
+            "document_id": self.document_id,
+            "filename": self.filename,
+        }
 
 
 @dataclass
@@ -79,12 +88,15 @@ class Aggregator:
             return text
 
     @staticmethod
-    def _page_of(chunk: RankedChunk) -> Optional[int]:
-        raw = chunk.metadata.get("page_number")
+    def _source_key(chunk: RankedChunk) -> tuple:
+        """(document_id, page_number): page numbers only collide across documents."""
+        meta = chunk.metadata or {}
+        raw_page = meta.get("page_number")
         try:
-            return int(raw)
+            page = int(raw_page)
         except (TypeError, ValueError):
             return None
+        return (str(meta.get("document_id") or ""), page)
 
     def aggregate(
         self,
@@ -95,31 +107,36 @@ class Aggregator:
         snippet_chars: int = 220,
         scrubbed_by_page: Optional[dict] = None,
     ) -> FinalAnswer:
-        """Attach deduplicated page citations from the reranked chunks only.
+        """Attach deduplicated source citations from the reranked chunks only.
 
-        `scrubbed_by_page` is the page -> already-scrubbed-text map produced by
-        build_llm_inputs. Preferred over the raw chunk for snippets, because the raw
-        chunk can begin mid-sentence with the label of a value already lost - a
-        snippet sliced out of it on its own has nothing for a label-anchored pattern
-        to match.
+        Citations are keyed by (document_id, page) so the same page number in
+        two different documents stays distinct. `scrubbed_by_page` uses the same
+        key and is the page -> already-scrubbed-text map produced by
+        build_llm_inputs. Preferred over the raw chunk for snippets, because the
+        raw chunk can begin mid-sentence with the label of a value already lost -
+        a snippet sliced out of it on its own has nothing for a label-anchored
+        pattern to match.
         """
-        best_by_page: dict[int, RankedChunk] = {}
+        best_by_key: dict[tuple, RankedChunk] = {}
         for chunk in reranked:
-            page = self._page_of(chunk)
-            if page is None:
+            key = self._source_key(chunk)
+            if key is None:
                 continue
-            if page not in best_by_page or chunk.score > best_by_page[page].score:
-                best_by_page[page] = chunk
+            if key not in best_by_key or chunk.score > best_by_key[key].score:
+                best_by_key[key] = chunk
 
         citations = []
-        for page in sorted(best_by_page, key=lambda p: best_by_page[p].score, reverse=True):
-            scrubbed = (scrubbed_by_page or {}).get(page)
+        for key in sorted(best_by_key, key=lambda k: best_by_key[k].score, reverse=True):
+            best = best_by_key[key]
+            scrubbed = (scrubbed_by_page or {}).get(key)
             if scrubbed is None:
-                scrubbed = self._scrub(best_by_page[page].content)
+                scrubbed = self._scrub(best.content)
             citations.append(Citation(
-                page_number=page,
-                score=best_by_page[page].score,
+                page_number=key[1],
+                score=best.score,
                 snippet=scrubbed[:snippet_chars],
+                document_id=key[0],
+                filename=str((best.metadata or {}).get("filename") or ""),
             ))
         return FinalAnswer(
             text=self._scrub(llm_response.text),

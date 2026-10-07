@@ -86,10 +86,31 @@ def test_graceful_failure_has_message_and_no_citations():
 def test_to_dict_is_json_safe():
     answer = Aggregator().aggregate(make_response(), make_chunks())
     data = answer.to_dict()
-    assert data["citations"][0] == {"page_number": 3, "score": 0.9, "snippet": data["citations"][0]["snippet"]}
+    assert data["citations"][0] == {
+        "page_number": 3,
+        "score": 0.9,
+        "snippet": data["citations"][0]["snippet"],
+        "document_id": "d",
+        "filename": "",
+    }
     import json
 
     json.dumps(data)  # must not raise
+
+
+def test_citations_keep_documents_distinct_on_shared_page_numbers():
+    """Page 3 of doc A and page 3 of doc B are different sources."""
+    chunks = [
+        RankedChunk("From A.", {"page_number": 3, "document_id": "a", "filename": "a.pdf"}, 0.9),
+        RankedChunk("From B.", {"page_number": 3, "document_id": "b", "filename": "b.pdf"}, 0.8),
+    ]
+    answer = Aggregator().aggregate(make_response(), chunks)
+    assert len(answer.citations) == 2
+    assert {(c.document_id, c.page_number) for c in answer.citations} == {
+        ("a", 3),
+        ("b", 3),
+    }
+    assert [c.filename for c in answer.citations] == ["a.pdf", "b.pdf"]
 
 
 # ---------------- post-LLM redaction of what the user actually sees ----------------
@@ -153,7 +174,7 @@ def test_snippet_uses_the_pre_scrubbed_page_text():
     chunks = [RankedChunk("50100234567890 is the payout account.", {"page_number": 3}, 0.9)]
     answer = Aggregator().aggregate(
         make_response(), chunks,
-        scrubbed_by_page={3: "Disbursal A/c No\n<IN_LOAN_NO> is the payout account."},
+        scrubbed_by_page={("", 3): "Disbursal A/c No\n<IN_LOAN_NO> is the payout account."},
     )
     snippet = answer.citations[0].snippet
     assert "50100234567890" not in snippet

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from src.generation.aggregator import Aggregator
     from src.generation.llm import LLMHandler
     from src.ingestion.chunker import Chunker
+    from src.ingestion.document_store import DocumentStore
     from src.ingestion.vectordb import VectorDB
     from src.rag_pipeline import RAGPipeline
     from src.redaction.presidio_scrubber import PresidioScrubber
@@ -45,6 +46,7 @@ class PipelineBundle:
     llm_handler: LLMHandler
     aggregator: Aggregator
     chunker: Chunker
+    document_store: DocumentStore
 
 
 def build_pipeline(
@@ -58,12 +60,14 @@ def build_pipeline(
     llm_handler: Optional[LLMHandler] = None,
     aggregator: Optional[Aggregator] = None,
     chunker: Optional[Chunker] = None,
+    document_store: Optional[DocumentStore] = None,
     embedder=None,
 ) -> PipelineBundle:
     """Wire a complete pipeline, defaulting every part to the production component."""
     from src.generation.aggregator import Aggregator
     from src.generation.llm import build_default_handler
     from src.ingestion.chunker import Chunker
+    from src.ingestion.document_store import DocumentStore
     from src.ingestion.vectordb import VectorDB
     from src.rag_pipeline import RAGPipeline
     from src.redaction.presidio_scrubber import get_scrubber
@@ -86,6 +90,7 @@ def build_pipeline(
     )
     chunk = chunker or Chunker()
     agg = aggregator or Aggregator(scrubber=scrub)
+    store = document_store or DocumentStore()
     pipeline = RAGPipeline(
         vector_db=vec_db,
         retriever=pipe_retriever,
@@ -96,6 +101,7 @@ def build_pipeline(
         aggregator=agg,
         chunker=chunk,
         embedder=embedder,
+        document_store=store,
     )
     return PipelineBundle(
         pipeline=pipeline,
@@ -108,6 +114,7 @@ def build_pipeline(
         llm_handler=handler,
         aggregator=agg,
         chunker=chunk,
+        document_store=store,
     )
 
 
