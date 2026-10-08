@@ -6,6 +6,33 @@ CHUNK_OVERLAP = 80
 MIN_TEXT_LENGTH_FOR_OCR = 100
 OCR_DPI = 300
 
+# ---- Upload limits / supported formats -------------------------------------
+MAX_UPLOAD_MB = 20            # per-file cap enforced by the UI
+MAX_PDF_PAGES = 100           # hard cap on PDF page count
+TEXT_PAGE_TARGET_CHARS = 2000 # target size of a pseudo-page for text-like formats
+TABLE_ROWS_PER_PAGE = 50      # data rows per pseudo-page for CSV/XLSX
+MAX_TABLE_ROWS = 20000        # safety cap per table/sheet
+
+# The single source of truth for what the uploader accepts and what
+# src.ingestion.parsers.parse_document can dispatch on.
+SUPPORTED_EXTENSIONS = (
+    ".pdf",
+    ".txt",
+    ".md",
+    ".docx",
+    ".csv",
+    ".xlsx",
+    ".pptx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+)
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
+
 # ---- Retrieval / reranking (unchanged) -------------------------------------
 BASE_K_RETRIEVAL = 10
 TOP_K_RERANK = 5

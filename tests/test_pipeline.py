@@ -222,7 +222,7 @@ def test_ingest_document_sets_state(pipeline, pdf_path):
     assert result.pages >= 1
     assert result.chunks >= 1
     assert result.vectors_added == result.chunks
-    assert pipeline.active_document_id == "tiny_loan"
+    assert pipeline.active_document_id == "tiny_loan.pdf"
     assert pipeline.has_document
 
 
@@ -562,7 +562,7 @@ def test_multiple_documents_share_one_corpus(pipeline, pdf_path, tmp_path):
     assert pipeline.has_document
 
     ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
-    assert ids == {"tiny_loan", "second_loan"}
+    assert ids == {"tiny_loan.pdf", "second_loan.pdf"}
 
 
 def test_ingest_uses_source_name_for_identity(pipeline, pdf_path, tmp_path):
@@ -570,7 +570,7 @@ def test_ingest_uses_source_name_for_identity(pipeline, pdf_path, tmp_path):
     tmp = tmp_path / "anexus_upload_1700000000.pdf"
     tmp.write_bytes(pdf_path.read_bytes())
     result = pipeline.ingest_document(tmp, source_name="borrower_agreement.pdf")
-    assert result.document_id == "borrower_agreement"
+    assert result.document_id == "borrower_agreement.pdf"
     assert result.filename == "borrower_agreement.pdf"
     assert pipeline.list_documents()[0]["filename"] == "borrower_agreement.pdf"
 
@@ -589,7 +589,7 @@ def test_answer_citations_carry_the_source_document(pipeline, pdf_path, tmp_path
     answer = pipeline.answer_query("What is the interest rate?")
     assert answer.citations
     for citation in answer.citations:
-        assert citation.document_id in {"tiny_loan", "second_loan"}
+        assert citation.document_id in {"tiny_loan.pdf", "second_loan.pdf"}
         assert citation.filename in {"tiny_loan.pdf", "second_loan.pdf"}
     # same page number in two documents must never collapse into one citation
     keys = {(c.document_id, c.page_number) for c in answer.citations}
@@ -601,19 +601,61 @@ def test_remove_document_keeps_the_others(pipeline, pdf_path, tmp_path):
     pipeline.ingest_document(pdf_path)
     pipeline.ingest_document(_second_pdf(tmp_path))
 
-    pipeline.remove_document("second_loan")
+    pipeline.remove_document("second_loan.pdf")
 
-    assert [d["id"] for d in pipeline.list_documents()] == ["tiny_loan"]
+    assert [d["id"] for d in pipeline.list_documents()] == ["tiny_loan.pdf"]
     ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
-    assert ids == {"tiny_loan"}
+    assert ids == {"tiny_loan.pdf"}
     assert pipeline.vector_db.count() >= 1
 
 
 def test_removing_every_document_clears_state(pipeline, pdf_path):
     pipeline.ingest_document(pdf_path)
-    pipeline.remove_document("tiny_loan")
+    pipeline.remove_document("tiny_loan.pdf")
     assert pipeline.list_documents() == []
     assert not pipeline.has_document
     assert pipeline.active_document_id is None
     answer = pipeline.answer_query("What is the rate?")
     assert answer.text == NO_CONTEXT_ANSWER
+
+
+def test_same_stem_different_extensions_do_not_alias(pipeline, pdf_path, tmp_path):
+    """notes.pdf and notes.txt are two corpus entries, not one."""
+    txt_path = tmp_path / "tiny_loan.txt"  # same stem as the pdf fixture
+    txt_path.write_text(
+        "Prepayment penalty is 2 percent of the outstanding principal.",
+        encoding="utf-8",
+    )
+
+    pipeline.ingest_document(pdf_path)
+    pipeline.ingest_document(txt_path)
+
+    ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
+    assert ids == {"tiny_loan.pdf", "tiny_loan.txt"}
+    assert {d["id"] for d in pipeline.list_documents()} == {
+        "tiny_loan.pdf",
+        "tiny_loan.txt",
+    }
+
+
+def test_reingest_reconciles_legacy_stem_id(pipeline, pdf_path):
+    """A record stored under the old stem-only id is replaced, not duplicated."""
+    from langchain_core.documents import Document
+
+    legacy_chunk = Document(
+        page_content="legacy chunk",
+        metadata={
+            "document_id": "tiny_loan",
+            "filename": "tiny_loan.pdf",
+            "page_number": 1,
+        },
+    )
+    pipeline.vector_db.add_chunks([legacy_chunk], [[0.1, 0.2, 0.3, 0.4]])
+    pipeline.document_store.add("tiny_loan", "tiny_loan.pdf", pages=1, chunks=1, vectors=1)
+
+    result = pipeline.ingest_document(pdf_path)
+
+    assert result.document_id == "tiny_loan.pdf"
+    ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
+    assert ids == {"tiny_loan.pdf"}
+    assert [d["id"] for d in pipeline.list_documents()] == ["tiny_loan.pdf"]

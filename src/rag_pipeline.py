@@ -26,7 +26,7 @@ from src.generation.llm import LLMHandler, ScrubbedText
 from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
 from src.ingestion.document_store import DocumentStore
-# parse_pdf imported lazily in ingest_document to reduce startup cost
+# parse_document imported lazily in ingest_document to reduce startup cost
 from src.ingestion.vectordb import VectorDB
 from src.memory.history import (
     build_history,
@@ -110,7 +110,7 @@ class RAGPipeline:
 
     # ---------------------------------------------------------------- ingestion
     def ingest_document(
-        self, pdf_path: str | Path, source_name: Optional[str] = None
+        self, file_path: str | Path, source_name: Optional[str] = None
     ) -> IngestionResult:
         """Parse -> chunk -> embed -> store -> rebuild BM25.
 
@@ -118,17 +118,22 @@ class RAGPipeline:
         searchable. Re-ingesting a document id that is already stored replaces
         it instead of duplicating its chunks.
 
+        Accepts any format the parser layer supports (PDF, DOCX, CSV, XLSX,
+        PPTX, TXT/MD, images).
+
         `source_name` is the user-facing filename. The UI saves uploads under a
         temp name, so without it the document identity would be the temp stem
-        (`anexus_upload_...`) and two different PDFs could alias each other.
+        (`anexus_upload_...`) and two different files could alias each other.
         """
-        pdf_path = Path(pdf_path)
-        filename = source_name or pdf_path.name
-        document_id = Path(filename).stem
+        file_path = Path(file_path)
+        filename = source_name or file_path.name
+        # Full filename (stem + extension): `notes.txt` and `notes.pdf` must be
+        # two corpus entries, not one.
+        document_id = Path(filename).name
         start = time.perf_counter()
-        from src.ingestion.parser import parse_pdf
+        from src.ingestion.parsers import parse_document
 
-        page_documents = parse_pdf(pdf_path)
+        page_documents = parse_document(file_path)
         if not page_documents:
             raise ValueError(f"No text could be extracted from {filename}")
 
@@ -151,7 +156,14 @@ class RAGPipeline:
             )
 
         # Append mode: only this document's previous chunks are dropped, then the
-        # BM25 index is rebuilt from the *whole* corpus (all documents).
+        # BM25 index is rebuilt from the *whole* corpus (all documents). Records
+        # stored under a legacy id (stem-only, from before ids included the
+        # extension) are reconciled here so a re-ingest replaces instead of
+        # duplicating.
+        for record in self.document_store.list():
+            if record["filename"] == filename and record["id"] != document_id:
+                self.vector_db.delete_document(record["id"])
+                self.document_store.remove(record["id"])
         self.vector_db.delete_document(document_id)
         self.vector_db.add_chunks(chunks, vectors)
         self.retriever.rebuild_bm25(self.vector_db.get_all_documents())

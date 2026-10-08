@@ -1,8 +1,10 @@
 # ANexus — Mortgage Document RAG Chatbot
 
-Ask questions about one or more uploaded mortgage PDFs. The pipeline **ingests → chunks →
-embeds → hybrid-retrieves → reranks → scrubs PII → routes → generates with citations**,
-keeping raw personally-identifying information (PII) out of every language-model call.
+Ask questions about one or more uploaded mortgage documents (PDF, Word, Excel,
+CSV, PowerPoint, text/Markdown, or scanned images). The pipeline **ingests →
+chunks → embeds → hybrid-retrieves → reranks → scrubs PII → routes → generates
+with citations**, keeping raw personally-identifying information (PII) out of
+every language-model call.
 
 ## Quick start
 
@@ -30,9 +32,26 @@ To answer with real LLMs, export `NVIDIA_API_KEY`, `GEMINI_API_KEY`, or
 
 Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first use.
 
+## Supported formats
+
+| Format | Extensions | How text is extracted |
+|--------|-----------|------------------------|
+| PDF | `.pdf` | PyMuPDF per page, Tesseract OCR fallback for scanned pages (≤ 100 pages, ≤ 20 MB) |
+| Plain text / Markdown | `.txt`, `.md` | decoded (UTF-8 → Latin-1), split on blank lines |
+| Word | `.docx` | python-docx; headings start a new citation page, tables rendered row-per-record |
+| Spreadsheet | `.xlsx`, `.csv` | openpyxl / csv; `Header: value` rows, 50 rows per citation page, one page series per sheet |
+| PowerPoint | `.pptx` | python-pptx; one citation page per slide (incl. tables and speaker notes) |
+| Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`, `.tiff` | Tesseract OCR (single page) |
+
+Non-PDF formats have no real pages, so logical units (heading sections, slide
+numbers, sheet row blocks) act as pages — citations like "Page 3" mean slide 3
+or the third row block. A document's identity is its **full filename**, so
+`notes.pdf` and `notes.txt` coexist in one corpus.
+
 ## Features
 
-- **Multiple documents** — upload several PDFs at once; they form a single corpus
+- **Multiple documents** — upload several documents at once, in any mix of the
+  formats above; they form a single corpus
   that every question is searched against. The sidebar lists each document with its
   page/chunk/vector stats, lets you remove individual documents (the rest stay
   searchable) or clear everything, and the whole set persists across restarts —
@@ -63,7 +82,7 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 275 passing (default: real-model tests skipped)
+python -m pytest -q          # 299 passing (default: real-model tests skipped)
 ```
 
 Real-model tests (BGE embedder, live retrieval) can be run locally with:
@@ -80,7 +99,7 @@ source pages per category (fact lookup, definitions, multi-hop, comparison,
 numerical, negative/unknown, compliance). Score the retrieval + answer stack:
 
 ```bash
-python -m evaluation.run_eval --pdf Synthetic_Mortgage_Loan_File_TEST.pdf
+python -m evaluation.run_eval --file Synthetic_Mortgage_Loan_File_TEST.pdf
 # optional: RAGAS-style overlap report from the saved results
 python -m evaluation.ragas_eval --input evaluation/results.json
 ```
@@ -98,7 +117,7 @@ and uploads `evaluation/results.json` as an artifact.
 
 ```
 src/
-  ingestion/     parser (PyMuPDF+OCR), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
+  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, CSV/XLSX, PPTX, text, images), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
   retrieval/     hybrid retriever (dense+BM25 RRF), cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker

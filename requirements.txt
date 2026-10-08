@@ -1,6 +1,8 @@
 pymupdf 
 pytesseract 
-pdf2image 
+python-docx
+openpyxl
+python-pptx
 langchain
 langchain-community 
 chromadb 
