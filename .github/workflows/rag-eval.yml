@@ -66,11 +66,11 @@ jobs:
             ~/.cache/torch
           key: bge-large-en
 
-      - name: Ingest sample PDF and score the golden dataset
+      - name: Ingest sample document and score the golden dataset
         env:
           SIMULATE_LLM: "true"
         run: |
-          python -m evaluation.run_eval --pdf "Synthetic_Mortgage_Loan_File_TEST.pdf" \
+          python -m evaluation.run_eval --file "Synthetic_Mortgage_Loan_File_TEST.pdf" \
             --out evaluation/results.json
 
       - name: Upload evaluation report

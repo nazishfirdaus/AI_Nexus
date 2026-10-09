@@ -1,6 +1,6 @@
 """ANexus — Streamlit entry point.
 
-Owns the UI only: session state, PDF upload, chat view, document status and errors.
+Owns the UI only: session state, document upload, chat view, document status and errors.
 All RAG logic happens in src.rag_pipeline via src.pipeline_factory; chat
 persistence (conversations, messages, summaries) lives in src.memory.chat_store.
 """
@@ -13,14 +13,13 @@ from pathlib import Path
 
 import streamlit as st
 
+from config.settings import MAX_UPLOAD_MB, SUPPORTED_EXTENSIONS
 from src.memory.chat_store import ChatStore
 
 logger = logging.getLogger(__name__)
 
 APP_TITLE = "ANexus"
 SAMPLE_PDF = Path(__file__).resolve().parent / "Synthetic_Mortgage_Loan_File_TEST.pdf"
-MAX_PDF_MB = 20
-MAX_PDF_PAGES = 100
 
 DISCLAIMER = (
     "Demonstration / educational system. Not affiliated with any bank or lender. "
@@ -187,12 +186,13 @@ def _already_ingested(filename: str) -> bool:
     return any(d["filename"] == filename for d in st.session_state["documents"])
 
 
-def ingest_pdfs(items: list[tuple[bytes, str]]) -> None:
+def ingest_documents(items: list[tuple[bytes, str]]) -> None:
     """Save each upload to a temp file and append it to the corpus.
 
     `items` is [(bytes, original_filename), ...]. Files already in the registry
-    are skipped by the caller, so everything here is new. One failing PDF does
-    not abort the rest of the batch.
+    are skipped by the caller, so everything here is new. One failing document
+    does not abort the rest of the batch. The temp file keeps the original
+    extension so the parser can dispatch on it.
     """
     if not items:
         return
@@ -200,7 +200,8 @@ def ingest_pdfs(items: list[tuple[bytes, str]]) -> None:
     bundle = _get_cached_pipeline()
     results, errors = [], []
     for bytes_data, filename in items:
-        tmp = Path(os.environ.get("TEMP", ".")) / f"anexus_upload_{int(time.time())}.pdf"
+        suffix = Path(filename).suffix.lower()
+        tmp = Path(os.environ.get("TEMP", ".")) / f"anexus_upload_{int(time.time())}{suffix}"
         try:
             tmp.write_bytes(bytes_data)
             result = bundle.pipeline.ingest_document(tmp, source_name=filename)
@@ -246,15 +247,19 @@ def render_landing() -> None:
     st.title(APP_TITLE)
     st.caption(DISCLAIMER)
     st.markdown(
-        "Upload one or more mortgage **PDFs** and ask questions across all of them. "
-        "ANexus extracts the text (with OCR fallback), embeds it locally, and answers "
+        "Upload one or more mortgage documents — **PDF, Word, Excel, CSV, "
+        "PowerPoint, text/Markdown** or **images** (scanned via OCR) — and ask "
+        "questions across all of them. ANexus extracts the text (with OCR "
+        "fallback for PDFs and images), embeds it locally, and answers "
         "**only** from the supplied documents — with per-document page citations and "
         "PII redaction before any cloud call."
     )
 
     st.markdown("#### Get started")
     uploaded = st.file_uploader(
-        "Choose mortgage documents (PDF)", type=["pdf"], accept_multiple_files=True
+        "Choose mortgage documents",
+        type=list(SUPPORTED_EXTENSIONS),
+        accept_multiple_files=True,
     )
     use_sample = st.button("Use the sample mortgage document", type="secondary")
     return uploaded, use_sample
@@ -270,10 +275,13 @@ def handle_source(uploaded, use_sample: bool) -> None:
     items: list[tuple[bytes, str]] = []
     for file in uploaded or []:
         data = file.getvalue()
-        if len(data) > MAX_PDF_MB * 1024 * 1024:
+        if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
             st.warning(
-                f"'{file.name}' is larger than {MAX_PDF_MB} MB and was skipped."
+                f"'{file.name}' is larger than {MAX_UPLOAD_MB} MB and was skipped."
             )
+            continue
+        if Path(file.name).suffix.lower() not in SUPPORTED_EXTENSIONS:
+            st.warning(f"'{file.name}' has an unsupported format and was skipped.")
             continue
         if _already_ingested(file.name):
             continue
@@ -281,7 +289,7 @@ def handle_source(uploaded, use_sample: bool) -> None:
     if use_sample and not _already_ingested(SAMPLE_PDF.name):
         items.append((SAMPLE_PDF.read_bytes(), SAMPLE_PDF.name))
     if items:
-        ingest_pdfs(items)
+        ingest_documents(items)
 
 
 def _render_context_banner() -> None:
@@ -392,9 +400,9 @@ def _render_document_section() -> None:
     documents = st.session_state["documents"]
 
     if state == "processing":
-        st.info("Processing the PDFs…")
+        st.info("Processing the documents…")
     if state == "error" and not documents:
-        st.error("The uploaded PDFs could not be processed.")
+        st.error("The uploaded documents could not be processed.")
     if not documents:
         if state != "processing":
             st.markdown("No documents uploaded yet.")

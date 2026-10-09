@@ -27,7 +27,7 @@ def test_parse_pdf():
 
     assert (
         first_page.metadata["document_id"]
-        == "Synthetic_Mortgage_Loan_File_TEST"
+        == "Synthetic_Mortgage_Loan_File_TEST.pdf"
     )
 
     assert first_page.page_content != ""

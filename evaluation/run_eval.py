@@ -11,8 +11,10 @@ Designed to work offline (SIMULATE_LLM=1) in CI and locally; when provider keys 
 present it exercises the real generation path too.
 
 Usage:
-    python -m evaluation.run_eval --pdf "Synthetic_Mortgage_Loan_File_TEST.pdf" \
+    python -m evaluation.run_eval --file "Synthetic_Mortgage_Loan_File_TEST.pdf" \
         [--k 5] [--out results.json] [--simulate]
+
+``--pdf`` is kept as a deprecated alias of ``--file``.
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ import time
 from pathlib import Path
 
 from config import settings
-from src.ingestion.parser import parse_pdf
+from src.ingestion.parsers import parse_document
 from src.pipeline_factory import build_pipeline, reset_pipeline_cache
 from src.redaction.presidio_scrubber import scrub_chunks
 from src.retrieval.reranker import RankedChunk
@@ -61,7 +63,13 @@ def leak_score(text: str) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pdf", required=True, help="Path to the source PDF to ingest")
+    parser.add_argument(
+        "--file",
+        "--pdf",
+        dest="file",
+        required=True,
+        help="Path to the source document to ingest (any supported format)",
+    )
     parser.add_argument("--k", type=int, default=settings.TOP_K_RERANK, help="Top-k for recall/MRR")
     parser.add_argument("--out", default="evaluation/results.json", help="JSON output path")
     parser.add_argument(
@@ -76,23 +84,23 @@ def main() -> None:
     if not dataset_path.exists():
         raise SystemExit("evaluation/golden_dataset.json not found")
     dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
-    pdf_path = Path(args.pdf)
-    if not pdf_path.exists():
-        raise SystemExit(f"PDF not found: {pdf_path}")
+    file_path = Path(args.file)
+    if not file_path.exists():
+        raise SystemExit(f"File not found: {file_path}")
 
     # One fresh pipeline per run; no cross-run Chroma pollution. Ingestion is
-    # append-mode now, so the corpus is cleared explicitly before the eval PDF.
+    # append-mode now, so the corpus is cleared explicitly before the eval file.
     reset_pipeline_cache()
     bundle = build_pipeline()
     pipeline = bundle.pipeline
     pipeline.reset()
 
     ingest_start = time.perf_counter()
-    ing = pipeline.ingest_document(pdf_path)
+    ing = pipeline.ingest_document(file_path)
     ingest_s = time.perf_counter() - ingest_start
     print(f"[eval] ingested {ing.filename}: {ing.pages} pages, {ing.chunks} chunks in {ingest_s:.1f}s")
 
-    pages = parse_pdf(pdf_path)
+    pages = parse_document(file_path)
 
     rows = []
     retrieval_latencies, e2e_latencies = [], []
