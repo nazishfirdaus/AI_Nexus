@@ -3,6 +3,8 @@ pytesseract
 python-docx
 openpyxl
 python-pptx
+boto3
+trafilatura
 langchain
 langchain-community 
 chromadb 
@@ -19,3 +21,4 @@ langchain-groq
 datasets 
 presidio-analyzer
 presidio-anonymizer
+cryptography

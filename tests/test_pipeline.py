@@ -575,6 +575,41 @@ def test_ingest_uses_source_name_for_identity(pipeline, pdf_path, tmp_path):
     assert pipeline.list_documents()[0]["filename"] == "borrower_agreement.pdf"
 
 
+def test_ingest_parsed_documents_groups_pages_under_one_id(pipeline):
+    """Non-file sources (crawled sites) ingest pre-parsed pages under one id."""
+    from langchain_core.documents import Document
+
+    pages = [
+        Document(
+            page_content="The interest rate is 7.25 percent per annum on this loan.",
+            metadata={"source": "https://example.com/", "url": "https://example.com/", "page_number": 1},
+        ),
+        Document(
+            page_content="The prepayment penalty is 2 percent of the outstanding principal.",
+            metadata={"source": "https://example.com/a", "url": "https://example.com/a", "page_number": 2},
+        ),
+    ]
+    result = pipeline.ingest_parsed_documents(
+        pages, filename="Example Site", document_id="web_abc123"
+    )
+    assert result.document_id == "web_abc123"
+    assert result.filename == "Example Site"
+    assert result.pages == 2
+
+    docs = pipeline.retriever.documents
+    assert {d.metadata["document_id"] for d in docs} == {"web_abc123"}
+    assert {d.metadata["filename"] for d in docs} == {"Example Site"}
+    # per-page source (the URL) is preserved, not overwritten by the site title
+    assert {d.metadata["source"] for d in docs} == {
+        "https://example.com/",
+        "https://example.com/a",
+    }
+
+    # re-ingesting the same site replaces rather than duplicates
+    pipeline.ingest_parsed_documents(pages, filename="Example Site", document_id="web_abc123")
+    assert len(pipeline.list_documents()) == 1
+
+
 def test_reingesting_same_document_replaces_instead_of_duplicating(pipeline, pdf_path):
     first = pipeline.ingest_document(pdf_path)
     second = pipeline.ingest_document(pdf_path)
