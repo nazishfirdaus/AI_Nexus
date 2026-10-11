@@ -9,12 +9,20 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import streamlit as st
 
+from config import settings
 from config.settings import MAX_UPLOAD_MB, SUPPORTED_EXTENSIONS
+from src.auth.identity import resolve_user
+from src.auth.secrets_vault import SecretsVault, merge_nonempty
+from src.auth.tenancy import user_db_path
+from src.auth.user_store import UserStore
 from src.memory.chat_store import ChatStore
+from src.pipeline_factory import PipelineBundle, build_user_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +32,20 @@ SAMPLE_PDF = Path(__file__).resolve().parent / "Synthetic_Mortgage_Loan_File_TES
 DISCLAIMER = (
     "Demonstration / educational system. Not affiliated with any bank or lender. "
     "Output is not financial, legal, lending, or compliance advice."
+)
+
+# Credential form fields: (stored key, label, is_secret).
+_LLM_KEY_FIELDS = (
+    ("groq_api_key", "Groq API key", True),
+    ("gemini_api_key", "Google Gemini API key", True),
+    ("nvidia_api_key", "NVIDIA API key", True),
+)
+_S3_FIELDS = (
+    ("s3_access_key_id", "S3 access key ID", False),
+    ("s3_secret_access_key", "S3 secret access key", True),
+    ("s3_region", "S3 region (e.g. us-east-1)", False),
+    ("s3_endpoint_url", "S3 endpoint URL (for S3-compatible stores; blank = AWS)", False),
+    ("s3_bucket", "Default bucket", False),
 )
 
 
@@ -51,17 +73,98 @@ def _add_message(role: str, content: str, citations: list | None = None) -> None
     )
 
 
-@st.cache_resource
-def _get_store() -> ChatStore:
-    """One process-wide store; connections are opened per operation."""
-    return ChatStore()
+# ---------------------------------------------------------------------------
+# Identity / per-user context
+# ---------------------------------------------------------------------------
+# Session-state keys that belong to one user; dropped when the identity changes.
+_USER_SCOPED_KEYS = (
+    "messages",
+    "messages_synced",
+    "conversation_id",
+    "conversation_summary",
+    "documents",
+    "doc_state",
+    "session_restored",
+    "user_ctx",
+)
+
+
+@dataclass
+class UserContext:
+    """Everything bound to one logged-in user for this browser session."""
+
+    user: dict
+    bundle: PipelineBundle
+    chat_store: ChatStore
 
 
 @st.cache_resource
-def _get_cached_pipeline():
-    from src.pipeline_factory import get_pipeline
+def _get_user_store() -> UserStore:
+    """Process-wide account registry; connections open per operation."""
+    return UserStore()
 
-    return get_pipeline()
+
+def _dev_user() -> dict:
+    """Local-development identity (ANEXUS_AUTH_DISABLED), auto-provisioned admin."""
+    store = _get_user_store()
+    email = settings.DEV_USER_EMAIL
+    return store.get_by_email(email) or store.provision(
+        email, role=settings.ROLE_ADMIN, display_name="Local dev"
+    )
+
+
+def _current_user() -> Optional[dict]:
+    """Resolve the current identity, or None if not logged in / not allowed."""
+    if settings.AUTH_DISABLED:
+        return _dev_user()
+    try:
+        st_user = st.user
+    except Exception:
+        return None
+    return resolve_user(_get_user_store(), st_user)
+
+
+def _ensure_user_state(user: dict) -> None:
+    """Start a clean slate whenever the logged-in identity changes."""
+    if st.session_state.get("user_id") != user["id"]:
+        for key in _USER_SCOPED_KEYS:
+            st.session_state.pop(key, None)
+        st.session_state["user_id"] = user["id"]
+
+
+def _load_credentials(user: dict) -> dict:
+    """Decrypt the user's stored provider keys; empty when none are saved."""
+    ciphertext = _get_user_store().get_secrets(user["id"])
+    if not ciphertext:
+        return {}
+    try:
+        return SecretsVault().decrypt(ciphertext)
+    except Exception:
+        logger.exception("Could not load stored credentials for %s", user["email"])
+        return {}
+
+
+def _get_user_context(user: dict) -> UserContext:
+    """Build (once per session) the isolated pipeline + chat store for `user`."""
+    ctx = st.session_state.get("user_ctx")
+    if ctx is not None and ctx.user["id"] == user["id"]:
+        return ctx
+    bundle = build_user_pipeline(user["id"], credentials=_load_credentials(user))
+    ctx = UserContext(
+        user=user,
+        bundle=bundle,
+        chat_store=ChatStore(db_path=user_db_path(user["id"])),
+    )
+    st.session_state["user_ctx"] = ctx
+    return ctx
+
+
+def _chat_store() -> ChatStore:
+    return st.session_state["user_ctx"].chat_store
+
+
+def _bundle() -> PipelineBundle:
+    return st.session_state["user_ctx"].bundle
 
 
 # ---------------------------------------------------------------------------
@@ -84,10 +187,10 @@ def _sync_messages() -> None:
         first_user = next((m for m in pending if m["role"] == "user"), None)
         if first_user is None:
             return
-        store = _get_store()
+        store = _chat_store()
         conv_id = store.create_conversation(title=first_user["content"][:40])
         st.session_state["conversation_id"] = conv_id
-    store = _get_store()
+    store = _chat_store()
     for msg in pending:
         store.append_message(
             conv_id, msg["role"], msg["content"], msg.get("citations")
@@ -108,7 +211,7 @@ def _start_new_chat() -> None:
 
 
 def _load_conversation(conv_id: str) -> None:
-    store = _get_store()
+    store = _chat_store()
     conv = store.get_conversation(conv_id)
     if conv is None:
         return
@@ -125,7 +228,7 @@ def _maybe_update_summary() -> None:
     if not conv_id:
         return
     try:
-        bundle = _get_cached_pipeline()
+        bundle = _bundle()
         new_summary = bundle.pipeline.summarize_history(
             st.session_state["messages"],
             st.session_state["conversation_summary"],
@@ -135,7 +238,7 @@ def _maybe_update_summary() -> None:
         return
     if new_summary:
         st.session_state["conversation_summary"] = new_summary
-        _get_store().set_summary(conv_id, new_summary)
+        _chat_store().set_summary(conv_id, new_summary)
 
 
 def _restore_documents_state() -> None:
@@ -147,7 +250,7 @@ def _restore_documents_state() -> None:
     if not Path(settings.CHROMA_PERSIST_DIRECTORY).exists():
         return
     try:
-        pipeline = _get_cached_pipeline().pipeline
+        pipeline = _bundle().pipeline
         documents = pipeline.restore_documents()
         if documents:
             st.session_state["documents"] = documents
@@ -163,7 +266,7 @@ def _restore_session() -> None:
     st.session_state["session_restored"] = True
     _restore_documents_state()
     try:
-        conversations = _get_store().list_conversations(limit=1)
+        conversations = _chat_store().list_conversations(limit=1)
     except Exception:
         logger.exception("Could not load saved conversations")
         return
@@ -176,7 +279,7 @@ def _restore_session() -> None:
 # ---------------------------------------------------------------------------
 def _refresh_documents() -> list[dict]:
     """Reload the document registry snapshot from the pipeline."""
-    documents = _get_cached_pipeline().pipeline.list_documents()
+    documents = _bundle().pipeline.list_documents()
     st.session_state["documents"] = documents
     st.session_state["doc_state"] = "ready" if documents else "empty"
     return documents
@@ -184,6 +287,102 @@ def _refresh_documents() -> list[dict]:
 
 def _already_ingested(filename: str) -> bool:
     return any(d["filename"] == filename for d in st.session_state["documents"])
+
+
+def _current_credentials() -> dict:
+    ctx = st.session_state.get("user_ctx")
+    return _load_credentials(ctx.user) if ctx else {}
+
+
+def handle_cloud_import(bucket: str, prefix: str) -> None:
+    """List supported objects under bucket/prefix and ingest the new ones."""
+    from src.ingestion.sources.cloud import (
+        CloudError,
+        build_s3_client,
+        collect_supported_objects,
+    )
+
+    creds = _current_credentials()
+    if not (creds.get("s3_access_key_id") and creds.get("s3_secret_access_key")):
+        st.warning("Add your S3 credentials on the Settings page first.")
+        return
+    if not bucket.strip():
+        st.warning("Enter a bucket name.")
+        return
+
+    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+    try:
+        client = build_s3_client(creds)
+        with st.spinner("Listing and downloading from cloud storage…"):
+            items = collect_supported_objects(
+                client, bucket.strip(), prefix.strip(), max_bytes=max_bytes
+            )
+    except CloudError as exc:
+        st.error(f"Cloud import failed: {exc}")
+        return
+    except Exception as exc:
+        logger.exception("Cloud import failed")
+        st.error(f"Cloud import failed: {exc}")
+        return
+
+    items = [(data, name) for data, name in items if not _already_ingested(name)]
+    if not items:
+        st.info("No new supported files found to import.")
+        return
+    ingest_documents(items)
+
+
+def _document_exists(document_id: str) -> bool:
+    return any(d["id"] == document_id for d in st.session_state["documents"])
+
+
+def handle_web_import(url: str, max_pages: int) -> None:
+    """Crawl a website (same domain) and ingest it as a single document."""
+    from src.ingestion.sources.web import WebSourceError, crawl_documents
+
+    if not url.strip():
+        st.warning("Enter a website URL.")
+        return
+    try:
+        with st.spinner("Crawling the website…"):
+            site = crawl_documents(url.strip(), max_pages=int(max_pages))
+    except WebSourceError as exc:
+        st.error(f"Website import failed: {exc}")
+        return
+    except Exception as exc:
+        logger.exception("Website import failed")
+        st.error(f"Website import failed: {exc}")
+        return
+
+    if not site.documents:
+        st.info("No readable pages were found at that URL.")
+        return
+    if _document_exists(site.document_id):
+        st.info(f"'{site.title}' is already imported.")
+        return
+
+    bundle = _bundle()
+    st.session_state["doc_state"] = "processing"
+    try:
+        result = bundle.pipeline.ingest_parsed_documents(
+            site.documents, filename=site.title, document_id=site.document_id
+        )
+    except Exception as exc:
+        logger.exception("Website ingestion failed")
+        st.session_state["doc_state"] = "error"
+        st.error(f"Could not process '{site.title}': {exc}")
+        return
+
+    _refresh_documents()
+    _start_new_chat()
+    _add_message(
+        "assistant",
+        f"Successfully imported '{result.filename}' — {result.pages} page(s), "
+        f"{result.chunks} chunks, {result.vectors_added} vectors crawled from "
+        f"{url.strip()}.",
+    )
+    _sync_messages()
+    st.rerun()
 
 
 def ingest_documents(items: list[tuple[bytes, str]]) -> None:
@@ -197,7 +396,7 @@ def ingest_documents(items: list[tuple[bytes, str]]) -> None:
     if not items:
         return
     st.session_state["doc_state"] = "processing"
-    bundle = _get_cached_pipeline()
+    bundle = _bundle()
     results, errors = [], []
     for bytes_data, filename in items:
         suffix = Path(filename).suffix.lower()
@@ -262,6 +461,34 @@ def render_landing() -> None:
         accept_multiple_files=True,
     )
     use_sample = st.button("Use the sample mortgage document", type="secondary")
+
+    creds = _current_credentials()
+    has_s3 = bool(creds.get("s3_access_key_id") and creds.get("s3_secret_access_key"))
+    with st.expander("Import from cloud storage (S3-compatible)"):
+        if not has_s3:
+            st.caption("Add your S3 credentials on the **Settings** page to enable this.")
+        bucket = st.text_input("Bucket", value=creds.get("s3_bucket", ""), key="cloud_bucket")
+        prefix = st.text_input("Prefix / folder (optional)", value="", key="cloud_prefix")
+        if st.button("Import supported files", disabled=not has_s3):
+            handle_cloud_import(bucket, prefix)
+
+    with st.expander("Import from a website"):
+        url = st.text_input(
+            "Start URL",
+            value="",
+            key="web_url",
+            placeholder="https://example.com/loan-terms",
+        )
+        max_pages = st.number_input(
+            "Max pages to crawl",
+            min_value=1,
+            max_value=settings.WEB_MAX_PAGES,
+            value=min(5, settings.WEB_MAX_PAGES),
+            key="web_pages",
+        )
+        if st.button("Crawl and import"):
+            handle_web_import(url, int(max_pages))
+
     return uploaded, use_sample
 
 
@@ -335,7 +562,7 @@ def render_chat() -> None:
 
     with st.spinner("Searching the documents…"):
         try:
-            bundle = _get_cached_pipeline()
+            bundle = _bundle()
             answer = bundle.pipeline.answer_query(
                 prompt,
                 chat_history=list(st.session_state["messages"][:-1]),
@@ -372,7 +599,7 @@ def _conversation_label(conv: dict) -> str:
 def _remove_document(document_id: str) -> None:
     """Delete one document from the corpus; the others stay searchable."""
     try:
-        bundle = _get_cached_pipeline()
+        bundle = _bundle()
         bundle.pipeline.remove_document(document_id)
         _refresh_documents()
     except Exception:
@@ -384,7 +611,7 @@ def _remove_document(document_id: str) -> None:
 def _clear_documents() -> None:
     """Drop every uploaded document and start over."""
     try:
-        bundle = _get_cached_pipeline()
+        bundle = _bundle()
         bundle.pipeline.reset()
         _refresh_documents()
     except Exception:
@@ -428,7 +655,7 @@ def _render_document_section() -> None:
 
 def _render_chat_section() -> None:
     st.markdown("### Chats")
-    store = _get_store()
+    store = _chat_store()
 
     if st.button("➕ New chat"):
         _start_new_chat()
@@ -485,21 +712,228 @@ def render_sidebar() -> None:
     with st.sidebar:
         st.header(APP_TITLE)
         st.caption(DISCLAIMER)
+        ctx = st.session_state.get("user_ctx")
+        if ctx is not None:
+            user = ctx.user
+            st.markdown(f"**{user.get('display_name') or user.get('email')}**")
+            st.caption(f"{user['email']} · {user['role']}")
+            options = ["Chat", "Settings"]
+            if user["role"] == settings.ROLE_ADMIN:
+                options.append("Admin")
+            st.radio("Navigation", options, key="nav", label_visibility="collapsed")
+            if not settings.AUTH_DISABLED and st.button("Sign out", use_container_width=True):
+                st.logout()
+            st.divider()
         _render_document_section()
         _render_chat_section()
+
+
+def render_login() -> None:
+    """Login / access-denied screen shown before any user data is touched."""
+    st.title(APP_TITLE)
+    st.caption(DISCLAIMER)
+    try:
+        logged_in = bool(getattr(st.user, "is_logged_in", False))
+    except Exception:
+        st.error(
+            "Authentication is not configured. Add an `[auth]` block to "
+            "`.streamlit/secrets.toml` (see `.streamlit/secrets.toml.example`)."
+        )
+        return
+    if logged_in:
+        st.error(
+            "Your account is not authorized yet. Ask an administrator to provision "
+            "it, then sign in again."
+        )
+        if st.button("Sign out"):
+            st.logout()
+        return
+    st.markdown("Sign in to upload documents and ask questions. Access is by invitation.")
+    if st.button(f"Sign in with {settings.AUTH_PROVIDER_NAME}", type="primary"):
+        st.login()
+
+
+# ---------------------------------------------------------------------------
+# Settings (BYOK) and Admin
+# ---------------------------------------------------------------------------
+def _rebuild_context() -> None:
+    """Force the per-user pipeline to rebuild on the next rerun (after key changes)."""
+    st.session_state.pop("user_ctx", None)
+
+
+def render_settings(user: dict) -> None:
+    st.title("Settings")
+    st.caption(
+        "Your API keys and cloud credentials are encrypted and stored on the server "
+        "for your account only. They are never shown again after saving."
+    )
+    existing = _load_credentials(user)
+    vault_ready = bool(settings.SECRET_KEY)
+    if not vault_ready:
+        st.warning(
+            "Saving credentials is disabled until `ANEXUS_SECRET_KEY` is set in the "
+            "environment or secrets."
+        )
+
+    with st.form("settings_form"):
+        st.subheader("Language model API keys")
+        st.caption("Leave a field blank to keep its current value.")
+        entered: dict[str, str] = {}
+        for field, label, secret in _LLM_KEY_FIELDS:
+            entered[field] = st.text_input(
+                label,
+                value="",
+                type="password" if secret else "default",
+                placeholder="set" if existing.get(field) else "",
+                key=f"cred_{field}",
+            )
+
+        st.subheader("Cloud storage (S3-compatible)")
+        for field, label, secret in _S3_FIELDS:
+            entered[field] = st.text_input(
+                label,
+                value="",
+                type="password" if secret else "default",
+                placeholder="set" if existing.get(field) else "",
+                key=f"cred_{field}",
+            )
+
+        col_save, col_clear = st.columns(2)
+        save = col_save.form_submit_button(
+            "Save credentials", type="primary", disabled=not vault_ready
+        )
+        clear = col_clear.form_submit_button("Clear all credentials", disabled=not existing)
+
+    if save:
+        merged = merge_nonempty(existing, entered)
+        try:
+            _get_user_store().set_secrets(user["id"], SecretsVault().encrypt(merged))
+        except Exception as exc:
+            st.error(f"Could not save credentials: {exc}")
+        else:
+            _rebuild_context()
+            st.success("Saved. Your credentials are now in use.")
+            st.rerun()
+
+    if clear:
+        _get_user_store().clear_secrets(user["id"])
+        _rebuild_context()
+        st.success("Cleared all stored credentials.")
+        st.rerun()
+
+
+def render_admin(user: dict) -> None:
+    st.title("Admin")
+    store = _get_user_store()
+
+    st.subheader("Provision a user")
+    with st.form("provision_user"):
+        email = st.text_input("Email address").strip().lower()
+        role = st.selectbox("Role", [settings.ROLE_USER, settings.ROLE_ADMIN])
+        submitted = st.form_submit_button("Provision account", type="primary")
+    if submitted:
+        if not email:
+            st.warning("Enter an email address.")
+        elif store.get_by_email(email):
+            st.warning("That email is already provisioned.")
+        else:
+            store.provision(email, role=role)
+            st.success(f"Provisioned {email} as {role}.")
+            st.rerun()
+
+    st.subheader(f"Users ({len(store.list_users())})")
+    for record in store.list_users():
+        is_self = record["id"] == user["id"]
+        with st.expander(f"{record['email']} — {record['role']} — {record['status']}"):
+            st.caption(
+                f"name: {record.get('display_name') or '—'} · "
+                f"created: {record['created_at'][:19]} · "
+                f"last login: {(record.get('last_login_at') or 'never')[:19]}"
+            )
+            role = st.selectbox(
+                "Role",
+                [settings.ROLE_USER, settings.ROLE_ADMIN],
+                index=0 if record["role"] == settings.ROLE_USER else 1,
+                key=f"arole_{record['id']}",
+                disabled=is_self,
+            )
+            status = st.selectbox(
+                "Status",
+                [settings.STATUS_ACTIVE, settings.STATUS_DISABLED],
+                index=0 if record["status"] == settings.STATUS_ACTIVE else 1,
+                key=f"astatus_{record['id']}",
+                disabled=is_self,
+            )
+            col_save, col_remove = st.columns(2)
+            if col_save.button("Save", key=f"asave_{record['id']}", disabled=is_self):
+                is_last_admin = (
+                    record["role"] == settings.ROLE_ADMIN
+                    and role == settings.ROLE_USER
+                    and store.admin_count() <= 1
+                )
+                if is_last_admin:
+                    st.error("Cannot demote the last remaining admin.")
+                else:
+                    store.set_role(record["id"], role)
+                    store.set_status(record["id"], status)
+                    st.success("Updated.")
+                    st.rerun()
+            if col_remove.button(
+                "Remove", key=f"aremove_{record['id']}", disabled=is_self
+            ):
+                store.remove(record["id"])
+                st.success("Removed.")
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------
 # Entry point (import-safe so `streamlit run app.py` and pytest both work)
 # ---------------------------------------------------------------------------
+def _apply_streamlit_secrets() -> None:
+    """Bridge a few Streamlit secrets into the environment / settings module.
+
+    `config.settings` reads plain environment variables, and Streamlit secrets
+    live in `st.secrets`, so copy the ones the app needs across at startup.
+    """
+    try:
+        secrets = st.secrets
+    except Exception:
+        return
+    for key in ("ANEXUS_SECRET_KEY", "ANEXUS_BOOTSTRAP_ADMIN_EMAIL"):
+        try:
+            if key in secrets and not os.environ.get(key):
+                os.environ[key] = str(secrets[key])
+        except Exception:
+            continue
+    settings.SECRET_KEY = os.environ.get("ANEXUS_SECRET_KEY", "").strip()
+    settings.BOOTSTRAP_ADMIN_EMAIL = (
+        os.environ.get("ANEXUS_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="centered")
+    _apply_streamlit_secrets()
+    user = _current_user()
+    if user is None:
+        render_login()
+        return
+    _ensure_user_state(user)
     _init_state()
+    _get_user_context(user)
     _restore_session()
     render_sidebar()
+
+    page = st.session_state.get("nav", "Chat")
+    if page == "Settings":
+        render_settings(user)
+        return
+    if page == "Admin" and user["role"] == settings.ROLE_ADMIN:
+        render_admin(user)
+        return
+
     uploaded, use_sample = render_landing()
     handle_source(uploaded, use_sample)
-
     if st.session_state["doc_state"] == "ready" or st.session_state["messages"]:
         render_chat()
 

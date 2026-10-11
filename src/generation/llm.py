@@ -313,8 +313,19 @@ class LLMHandler:
         raise AllProvidersFailed(errors)
 
 
-def build_default_handler(quota_tracker: QuotaTracker | None = None) -> LLMHandler:
-    """Construct the handler from environment variables (see .env.example)."""
+# Provider -> (credential dict field, environment variable).
+_PROVIDER_KEY_FIELDS = {
+    "nvidia": ("nvidia_api_key", "NVIDIA_API_KEY"),
+    "gemini_flash": ("gemini_api_key", "GEMINI_API_KEY"),
+    "groq": ("groq_api_key", "GROQ_API_KEY"),
+}
+
+
+def build_handler(
+    api_keys: dict[str, str | None],
+    quota_tracker: QuotaTracker | None = None,
+) -> LLMHandler:
+    """Construct the handler from explicit per-provider keys (provider -> key)."""
     tracker = quota_tracker or QuotaTracker()
     if settings.SIMULATE_LLM:
         return LLMHandler({"simulated": SimulatedAdapter()}, tracker)
@@ -322,9 +333,36 @@ def build_default_handler(quota_tracker: QuotaTracker | None = None) -> LLMHandl
     models = settings.PROVIDER_MODELS
     return LLMHandler(
         {
-            "nvidia": NvidiaAdapter(models["nvidia"], os.getenv("NVIDIA_API_KEY")),
-            "gemini_flash": GeminiAdapter(models["gemini_flash"], os.getenv("GEMINI_API_KEY")),
-            "groq": GroqAdapter(models["groq"], os.getenv("GROQ_API_KEY")),
+            "nvidia": NvidiaAdapter(models["nvidia"], api_keys.get("nvidia")),
+            "gemini_flash": GeminiAdapter(models["gemini_flash"], api_keys.get("gemini_flash")),
+            "groq": GroqAdapter(models["groq"], api_keys.get("groq")),
         },
         tracker,
     )
+
+
+def build_default_handler(quota_tracker: QuotaTracker | None = None) -> LLMHandler:
+    """Construct the handler from environment variables (see .env.example)."""
+    keys = {provider: os.getenv(env) for provider, (_, env) in _PROVIDER_KEY_FIELDS.items()}
+    return build_handler(keys, quota_tracker)
+
+
+def build_handler_from_credentials(
+    credentials: dict | None,
+    quota_tracker: QuotaTracker | None = None,
+) -> LLMHandler:
+    """Build the handler from a user's stored credentials.
+
+    When the user has supplied at least one provider key, ONLY those keys are
+    used - the admin's environment keys are never spent on a user's behalf. With
+    no user keys, the handler falls back to the environment defaults so a
+    freshly-onboarded account still works.
+    """
+    creds = credentials or {}
+    user_keys = {
+        provider: creds.get(field)
+        for provider, (field, _env) in _PROVIDER_KEY_FIELDS.items()
+    }
+    if any(user_keys.values()):
+        return build_handler(user_keys, quota_tracker)
+    return build_default_handler(quota_tracker)

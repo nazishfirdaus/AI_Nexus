@@ -130,19 +130,42 @@ class RAGPipeline:
         # Full filename (stem + extension): `notes.txt` and `notes.pdf` must be
         # two corpus entries, not one.
         document_id = Path(filename).name
-        start = time.perf_counter()
         from src.ingestion.parsers import parse_document
 
         page_documents = parse_document(file_path)
         if not page_documents:
             raise ValueError(f"No text could be extracted from {filename}")
+        return self.ingest_parsed_documents(
+            page_documents, filename=filename, document_id=document_id, source=filename
+        )
 
-        # Re-bind identity to the original filename (parser only sees the temp path).
+    def ingest_parsed_documents(
+        self,
+        page_documents: list[Document],
+        *,
+        filename: str,
+        document_id: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> IngestionResult:
+        """Chunk -> embed -> store -> rebuild BM25 for already-parsed pages.
+
+        Shared by file uploads and non-file sources (e.g. a crawled website that
+        yields several page Documents under a single document id). `source`, when
+        given, overrides the per-page source metadata (file uploads set it to the
+        filename; web pages keep their own URL as source).
+        """
+        if not page_documents:
+            raise ValueError(f"No text could be extracted from {filename}")
+        document_id = document_id or Path(filename).name
+        start = time.perf_counter()
+
+        # Re-bind identity (parsers only see the temp path / own metadata).
         for page in page_documents:
             meta = dict(page.metadata or {})
             meta["document_id"] = document_id
             meta["filename"] = filename
-            meta["source"] = filename
+            if source is not None:
+                meta["source"] = source
             page.metadata = meta
 
         chunks = self.chunker.split(page_documents)

@@ -130,3 +130,49 @@ HISTORY_MAX_MESSAGE_CHARS = 1000   # per-message cap inside the history window
 HISTORY_SUMMARY_TRIGGER = 12       # messages before a rolling summary is maintained
 QUERY_REWRITE_ENABLED = True       # heuristic-gated follow-up resolution
 REWRITE_MAX_WORDS = 6              # queries this short are treated as follow-ups
+
+# ============================================================================
+# Auth / multi-tenancy (login + full per-user isolation)
+# ============================================================================
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+
+# Registry of accounts and their encrypted credentials.
+AUTH_DB_PATH = os.path.join(_PROJECT_ROOT, "auth_db", "auth.sqlite3")
+# One directory per user holding that user's documents + chats SQLite file.
+USER_DATA_DIR = os.path.join(_PROJECT_ROOT, "data", "users")
+
+# Passphrase for the per-user credential vault (Fernet). Any string works; it is
+# stretched with SHA-256 into a 32-byte key. Only needed to save credentials.
+SECRET_KEY = os.getenv("ANEXUS_SECRET_KEY", "").strip()
+
+# The first login from this email is auto-provisioned as an admin. Empty = off.
+BOOTSTRAP_ADMIN_EMAIL = os.getenv("ANEXUS_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
+
+# Local development escape hatch: when true, skip OIDC and act as DEV_USER_EMAIL
+# (auto-provisioned as an admin). NEVER enable this in a deployed environment.
+AUTH_DISABLED = os.getenv("ANEXUS_AUTH_DISABLED", "0").strip().lower() in ("1", "true", "yes")
+DEV_USER_EMAIL = os.getenv("ANEXUS_DEV_EMAIL", "dev@localhost").strip().lower()
+
+# Friendly provider name shown on the login screen (Streamlit reads the real
+# OIDC client config from the [auth] block in secrets.toml).
+AUTH_PROVIDER_NAME = os.getenv("ANEXUS_AUTH_PROVIDER_NAME", "Google").strip()
+
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+VALID_ROLES = (ROLE_ADMIN, ROLE_USER)
+
+STATUS_ACTIVE = "active"
+STATUS_DISABLED = "disabled"
+VALID_STATUSES = (STATUS_ACTIVE, STATUS_DISABLED)
+
+# ---- Web source ------------------------------------------------------------
+WEB_FETCH_TIMEOUT_S = 15
+WEB_MAX_PAGES = 20                 # hard cap on pages per crawl
+WEB_MAX_BYTES = 2_000_000          # per-page download cap (2 MB)
+WEB_USER_AGENT = "ANexusBot/1.0 (+https://example.invalid/anexus)"
+WEB_CRAWL_DELAY_S = 1.0            # politeness delay between page fetches
+
+# ---- Cloud source (S3-compatible) ------------------------------------------
+CLOUD_MAX_FILES = 50               # hard cap on objects imported per run
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "").strip()  # empty = real AWS
+S3_REGION = os.getenv("S3_REGION", "").strip()

@@ -23,3 +23,5 @@ htmlcov/
 
 .vscode/
 chat_db/
+auth_db/
+data/

@@ -8,6 +8,9 @@ import os
 
 import pytest
 
+# Keep Chroma from attempting anonymous telemetry (avoids network hangs in CI).
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
 _RUN_REAL = os.getenv("ANEXUS_RUN_REAL_TESTS", "0") == "1"
 _REAL_SKIP_REASON = "real-model test; set ANEXUS_RUN_REAL_TESTS=1 to run it"
 
