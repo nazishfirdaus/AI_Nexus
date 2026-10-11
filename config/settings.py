@@ -17,6 +17,21 @@ PDF_TEXT_ENGINE = os.getenv("ANEXUS_PDF_TEXT_ENGINE", "pymupdf").strip().lower()
 # OCR: when Tesseract is unavailable or returns nothing, retry with RapidOCR.
 OCR_ENGINE = os.getenv("ANEXUS_OCR_ENGINE", "tesseract").strip().lower()
 
+# ---- Text cleaning / preprocessing -----------------------------------------
+# NFKC + control/zero-width cleanup in parsers/common.normalize_text is always on.
+# De-hyphenation joins a word split across a line break ("loan ac-\ncount").
+NORMALIZE_DEHYPHENATE = os.getenv(
+    "ANEXUS_NORMALIZE_DEHYPHENATE", "1"
+).strip().lower() in ("1", "true", "yes")
+# Markdown artifacts from the pymupdf4llm fallback (headers, pipes, **bold**):
+# "auto" strips them only for that extractor; "true"/"false" force on/off everywhere.
+STRIP_MARKDOWN_ARTIFACTS = os.getenv("ANEXUS_STRIP_MARKDOWN", "auto").strip().lower()
+# A text/OCR page whose alphanumeric ratio (over non-space chars) is below this is
+# treated as garbled and falls through to the next engine (pymupdf4llm) or OCR.
+OCR_GIBBERISH_MIN_ALNUM_RATIO = float(
+    os.getenv("ANEXUS_OCR_GIBBERISH_MIN_ALNUM_RATIO", "0.5")
+)
+
 # ---- Upload limits / supported formats -------------------------------------
 MAX_UPLOAD_MB = 20            # per-file cap enforced by the UI
 MAX_PDF_PAGES = 100           # hard cap on PDF page count

@@ -24,8 +24,10 @@ from config.settings import MAX_PDF_PAGES, MIN_TEXT_LENGTH_FOR_OCR, OCR_DPI
 from . import ocr
 from .common import (
     has_sufficient_text,
+    looks_like_gibberish,
     make_document,
     normalize_text,
+    strip_markdown_artifacts,
     validate_file,
 )
 
@@ -62,6 +64,21 @@ def extract_text_with_ocr(
 def _normalize_engine(engine: str | None) -> str:
     name = (engine or settings.PDF_TEXT_ENGINE or "pymupdf").strip().lower()
     return name if name in _PDF_ENGINES else "pymupdf"
+
+
+def _should_strip_markdown(extractor: str) -> bool:
+    """Whether to strip Markdown relics for text produced by ``extractor``.
+
+    "auto" (default) strips only the layout-aware pymupdf4llm output; uploaded
+    .md files and PyMuPDF plain text are left as-is.
+    """
+
+    mode = settings.STRIP_MARKDOWN_ARTIFACTS
+    if mode == "true":
+        return True
+    if mode == "false":
+        return False
+    return extractor == "pymupdf4llm"
 
 
 def _load_pymupdf4llm_pages(pdf: pymupdf.Document) -> dict[int, str] | None:
@@ -164,11 +181,15 @@ def parse_pdf(
                     cache=md_cache,
                     pdf=pdf,
                 )
-                if has_sufficient_text(text, min_text_length=min_text_length):
+                if has_sufficient_text(
+                    text, min_text_length=min_text_length
+                ) and not looks_like_gibberish(text):
                     chosen_engine, chosen_text = name, text
                     break
 
             if chosen_engine is not None:
+                if _should_strip_markdown(chosen_engine):
+                    chosen_text = strip_markdown_artifacts(chosen_text)
                 documents.append(
                     make_document(
                         normalize_text(chosen_text),

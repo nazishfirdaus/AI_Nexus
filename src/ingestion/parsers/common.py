@@ -7,22 +7,34 @@ chunker, aggregator, scrubber and UI stay format-agnostic.
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 from langchain_core.documents import Document
 
 from config.settings import (
     MIN_TEXT_LENGTH_FOR_OCR,
+    NORMALIZE_DEHYPHENATE,
+    OCR_GIBBERISH_MIN_ALNUM_RATIO,
     TEXT_PAGE_TARGET_CHARS,
 )
+
+# Zero-width / invisible characters that carry no meaning and only corrupt tokens.
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
+# Control characters that should never survive extraction (keep \n and \t).
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Word split across a line break by a hyphen ("loan ac-\ncount" -> "loan account").
+_DEHYPHEN_RE = re.compile(r"(?<=[A-Za-z])-\n(?=[a-z])")
 
 
 def normalize_text(text: str) -> str:
     """
     Normalize extracted text.
 
-    The goal is to remove unnecessary whitespace while
-    preserving meaningful line structure.
+    Unicode is NFKC-normalized (ligatures, full-width forms and NBSP become their
+    plain ASCII equivalents), then soft hyphens, zero-width and control characters
+    are removed, so downstream tokenizers see clean word forms. Whitespace is
+    tidied while meaningful line structure is preserved.
     """
 
     if not text:
@@ -31,6 +43,19 @@ def normalize_text(text: str) -> str:
     # Normalize line endings
     text = text.replace("\r\n", "\n")
     text = text.replace("\r", "\n")
+
+    # Canonical Unicode form: "ﬁnance" -> "finance", full-width digits -> ASCII,
+    # NBSP -> space. Runs before the whitespace pass so NBSP is collapsed too.
+    text = unicodedata.normalize("NFKC", text)
+
+    # Strip invisible characters that would otherwise split or corrupt tokens.
+    text = text.replace("\u00ad", "")  # soft hyphen
+    text = text.translate(_ZERO_WIDTH)  # zero-width space/joiner, BOM
+    text = _CONTROL_RE.sub("", text)
+
+    # Rejoin words hyphenated across a line break (optional).
+    if NORMALIZE_DEHYPHENATE:
+        text = _DEHYPHEN_RE.sub("", text)
 
     # Remove spaces and tabs at the beginning/end of lines
     lines = []
@@ -51,6 +76,73 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
+
+
+# Markdown relics emitted by layout-aware extractors (pymupdf4llm). Stripped only
+# where requested, so uploaded .md files keep their authoring syntax.
+_MD_FENCE_RE = re.compile(r"^[ \t]*```.*$", re.MULTILINE)
+_MD_SEPARATOR_ROW_RE = re.compile(
+    r"^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)+\|?[ \t]*$", re.MULTILINE
+)
+
+
+def strip_markdown_artifacts(text: str) -> str:
+    """Remove Markdown syntax so only the readable content remains.
+
+    Deliberately conservative: headers and list markers are only stripped at line
+    start, emphasis is limited to ``*``/``**`` (never ``_``, which is common in
+    identifiers such as ``IN_LOAN_NO``), and a leading ``-`` before a digit is
+    preserved so negative amounts survive. Line structure is left for
+    ``normalize_text`` to tidy.
+    """
+
+    if not text:
+        return ""
+
+    text = _MD_FENCE_RE.sub("", text)                          # ``` fence lines
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)                 # inline code
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)           # images
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)       # links -> label
+    # Line-relative whitespace is [ \t] (never \s) so a match cannot swallow the
+    # newline that separates it from the next line.
+    text = re.sub(r"^[ \t]{0,3}#{1,6}[ \t]+", "", text, flags=re.MULTILINE)   # headers
+    text = re.sub(
+        r"^[ \t]{0,3}[-*+][ \t]+(?=\D)", "", text, flags=re.MULTILINE
+    )                                                          # bullets
+    text = re.sub(r"^[ \t]*[-*_]{3,}[ \t]*$", "", text, flags=re.MULTILINE)   # rules
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", text)           # bold
+    text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", text)  # italic
+    text = _MD_SEPARATOR_ROW_RE.sub("", text)                  # |---|---| rows
+    text = re.sub(
+        r"^[ \t]*\|(.*)\|[ \t]*$", lambda m: m.group(1).strip(), text, flags=re.MULTILINE
+    )                                                          # table pipes
+
+    return text
+
+
+def looks_like_gibberish(
+    text: str,
+    min_alnum_ratio: float = OCR_GIBBERISH_MIN_ALNUM_RATIO,
+) -> bool:
+    """Heuristic: does ``text`` look like OCR/extraction noise rather than prose?
+
+    Uses the alphanumeric ratio over non-space characters. Real text (including
+    number-heavy financial tables) sits well above 0.5; symbol soup from a bad
+    scan falls below it. Strings shorter than ``MIN_TEXT_LENGTH_FOR_OCR`` return
+    False -- ``has_sufficient_text`` already rejects those, and short snippets are
+    too small to judge.
+    """
+
+    normalized = normalize_text(text)
+    if len(normalized) < MIN_TEXT_LENGTH_FOR_OCR:
+        return False
+
+    compact = "".join(ch for ch in normalized if not ch.isspace())
+    if not compact:
+        return True
+
+    alnum = sum(ch.isalnum() for ch in compact)
+    return (alnum / len(compact)) < min_alnum_ratio
 
 
 def has_sufficient_text(

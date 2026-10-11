@@ -110,6 +110,30 @@ Select the *primary* engine (the other becomes the fallback) with
 (`tesseract`|`rapidocr`); each extracted page is tagged with an `extractor` and,
 for OCR, an `ocr_engine` field.
 
+## Text cleaning / preprocessing
+
+Every extracted page passes through `parsers/common.normalize_text`, which cleans
+the text before it is chunked and embedded:
+
+- **Unicode NFKC** — ligatures (`ﬁ`→`fi`), full-width forms and non-breaking
+  spaces become their plain ASCII equivalents.
+- **Invisible characters removed** — soft hyphens, zero-width joiners/spaces and
+  BOM/control characters, so they can no longer split or corrupt tokens.
+- **De-hyphenation** — a word split across a line break (`loan ac-\ncount`) is
+  rejoined. Disable with `ANEXUS_NORMALIZE_DEHYPHENATE=false`.
+- **Whitespace tidy** — per-line trimming, collapsed runs of spaces/tabs and a cap
+  on consecutive blank lines, preserving meaningful line structure.
+
+Two optional guards improve extraction quality without adding dependencies:
+
+- **Markdown-artifact stripping** — the layout-aware `pymupdf4llm` fallback emits
+  Markdown (`#` headers, `|` tables, `**bold**`). In the default `auto` mode those
+  relics are stripped only for that extractor, so uploaded `.md` files keep their
+  authoring syntax. Override with `ANEXUS_STRIP_MARKDOWN` (`auto`|`true`|`false`).
+- **OCR gibberish guard** — a page whose alphanumeric ratio is too low is treated
+  as noise and retried with the next engine (pymupdf4llm) or OCR, instead of being
+  accepted as text. Tune with `ANEXUS_OCR_GIBBERISH_MIN_ALNUM_RATIO` (default `0.5`).
+
 ## Features
 
 - **Multiple documents** — upload several documents at once, in any mix of the
