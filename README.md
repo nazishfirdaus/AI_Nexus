@@ -61,7 +61,7 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 
 | Format | Extensions | How text is extracted |
 |--------|-----------|------------------------|
-| PDF | `.pdf` | PyMuPDF per page, Tesseract OCR fallback for scanned pages (≤ 100 pages, ≤ 20 MB); optional pymupdf4llm fallback for weak pages |
+| PDF | `.pdf` | PyMuPDF per page, Tesseract OCR fallback for scanned pages (≤ 100 pages, ≤ 20 MB); optional pymupdf4llm fallback for weak pages and pdfplumber table extraction for tabular pages |
 | Plain text / Markdown | `.txt`, `.md` | decoded (UTF-8 → Latin-1), split on blank lines |
 | Word | `.docx` | python-docx; headings start a new citation page, tables rendered row-per-record |
 | Spreadsheet | `.xlsx`, `.csv` | openpyxl / csv; `Header: value` rows, 50 rows per citation page, one page series per sheet |
@@ -88,25 +88,29 @@ or the third row block. A document's identity is its **full filename**, so
 ## Optional higher-accuracy fallback engines
 
 The baseline ingestion stack (**PyMuPDF** plain text + **Tesseract** OCR) runs
-exactly as before and needs no extra setup. Two optional engines can be added as
+exactly as before and needs no extra setup. Optional engines can be added as
 automatic fallbacks that engage **only when the baseline fails or returns too
 little text**:
 
 - **pymupdf4llm** — layout-aware Markdown. When a PDF page's plain text is too
   short, that page is retried with pymupdf4llm before OCR.
+- **pdfplumber** — table extraction. When a page's layout text is thin/jumbled
+  and the page looks tabular, the page is retried with pdfplumber, whose spans
+  become ordinary `Column: value` lines that dense + BM25 retrieval can match.
+  Control with `ANEXUS_PDF_TABLE_EXTRACTION` (`auto`|`on`|`off`, default `auto`).
 - **RapidOCR** — when Tesseract is unavailable or returns no text, RapidOCR is
   tried instead.
 
-Install the extras (adds `opencv-python-headless` and the self-contained layout
-and OCR models):
+Install the extras (adds `opencv-python-headless` and the self-contained layout,
+OCR and table models):
 
 ```bash
 pip install -r requirements-ocr.txt
 ```
 
-Both engines are optional: without them the app degrades back to the baseline.
+All engines are optional: without them the app degrades back to the baseline.
 Select the *primary* engine (the other becomes the fallback) with
-`ANEXUS_PDF_TEXT_ENGINE` (`pymupdf`|`pymupdf4llm`) and `ANEXUS_OCR_ENGINE`
+`ANEXUS_PDF_TEXT_ENGINE` (`pymupdf`|`pymupdf4llm`|`tables`), `ANEXUS_OCR_ENGINE`
 (`tesseract`|`rapidocr`); each extracted page is tagged with an `extractor` and,
 for OCR, an `ocr_engine` field.
 
@@ -133,6 +137,34 @@ Two optional guards improve extraction quality without adding dependencies:
 - **OCR gibberish guard** — a page whose alphanumeric ratio is too low is treated
   as noise and retried with the next engine (pymupdf4llm) or OCR, instead of being
   accepted as text. Tune with `ANEXUS_OCR_GIBBERISH_MIN_ALNUM_RATIO` (default `0.5`).
+
+## Scale, multilingual search & dedup
+
+Tunings that matter most once the corpus grows past a few hundred documents:
+
+- **Batched writes** — chunks are added to Chroma in batches
+  (`ANEXUS_CHROMA_ADD_BATCH_SIZE`, default 512) so large uploads stay within the
+  memory budget, and full-corpus reads paginate with offset
+  (`ANEXUS_CHROMA_GET_BATCH_SIZE`, default 1000).
+- **Incremental BM25** — adding a new document extends the in-memory keyword index
+  with just that document's tokenized chunks instead of re-reading the whole
+  vector store; re-ingests, removals and clears still rebuild fully for correctness.
+- **Unicode-aware tokens** — the BM25 tokenizer keeps numbers intact (`7.25`,
+  `4,50,000`) and tokenizes accented/CJK/Devanagari text, so keyword recall works
+  for non-English corpora even while the default English embedder is unchanged.
+- **Multilingual embeddings (optional)** — set `ANEXUS_EMBEDDING_MODEL_NAME` to a
+  multilingual model (e.g. `BAAI/bge-m3` or `jinaai/jina-embeddings-v3`). Note the
+  vector store is not re-embedded automatically; choose before a large ingestion
+  or rebuild afterwards.
+- **Content-hash dedup** — every document is fingerprinted (file bytes for
+  uploads, deterministic page-text hash for web/cloud sources). Uploading the same
+  content under a different name either informs the user and skips
+  (`ANEXUS_DEDUP_ACTION=skip`, the default — popped up as ℹ️ in the chat, not an
+  error) or removes the earlier document and takes the new name (`replace`).
+- **Duplicate-chunk suppression** — exact-duplicate chunks inside one batch (reuse
+  of the same boilerplate on every page) are dropped at ingest time.
+- **Quality stats** — the ingest report shows how many pages had to be OCR'd and
+  how many empty pages were dropped.
 
 ## Features
 
@@ -174,7 +206,7 @@ Two optional guards improve extraction quality without adding dependencies:
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 373 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
+python -m pytest -q          # 417 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
 ```
 
 Real-model tests (BGE embedder, live retrieval) can be run locally with:

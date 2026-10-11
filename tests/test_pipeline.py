@@ -67,6 +67,9 @@ class FakeRetriever:
         self.documents = list(documents)
         self.rebuilt = list(documents)
 
+    def add_documents(self, chunks):
+        self.documents.extend(chunks)
+
     def hybrid_retrieve(self, query):
         self.queries.append(query)
         return list(self.documents)

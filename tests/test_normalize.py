@@ -121,7 +121,7 @@ def test_short_string_never_flagged():
 def test_garbled_page_falls_through_to_pymupdf4llm(monkeypatch):
     """A low-alnum page is rejected by the gibberish guard and retried."""
 
-    def fake_engine_text(engine, *, page, page_number, plain_text, cache, pdf):
+    def fake_engine_text(engine, *, page, page_number, plain_text, cache, tables_cache, pdf):
         if engine == "pymupdf":
             return "@@@ ### !!! ... " * 20
         return (

@@ -4,6 +4,7 @@
 # this file only to enable the fallbacks:
 #
 #   PDF  : pymupdf4llm is tried, for pages whose plain text is too short, before OCR
+#   Tables: pdfplumber recovers tabular pages as Column: value lines before OCR
 #   OCR  : RapidOCR is tried when Tesseract is unavailable or returns no text
 #
 #   pip install -r requirements-ocr.txt
@@ -11,4 +12,5 @@
 # They add opencv-python-headless and the (self-contained) layout/OCR models.
 
 pymupdf4llm
+pdfplumber
 rapidocr

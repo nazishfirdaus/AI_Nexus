@@ -21,8 +21,11 @@ logger = logging.getLogger(__name__)
 RRF_K = 60
 # BGE v1 retrieves better when the *query* (not the passages) has this instruction.
 _BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
-# keeps numbers such as 7.25 and 4,50,000 intact, strips trailing punctuation
-_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[.,][0-9]+)*")
+# keeps numbers such as 7.25 and 4,50,000 intact, strips trailing punctuation.
+# Unicode-aware ([^\\W_] = letters and digits, not underscore) so accented and
+# non-Latin script text tokenizes instead of being dropped. Python's \\w already
+# includes Unicode letters/digits; the explicit class just excludes '_'.
+_TOKEN_RE = re.compile(r"[^\W_]+(?:[.,][0-9]+)*")
 
 
 class HybridRetriever:
@@ -46,6 +49,7 @@ class HybridRetriever:
         self.query_prefix = getattr(settings, "QUERY_INSTRUCTION", _BGE_QUERY_INSTRUCTION)
 
         self.documents: List[Document] = []
+        self._tokenized: List[List[str]] = []
         self.bm25: Optional[BM25Plus] = None
         self._token_sets: List[set] = []
         self._rebuild_attempted = False
@@ -68,15 +72,44 @@ class HybridRetriever:
 
     def _build_bm25(self, documents: List[Document]) -> None:
         self.documents = list(documents)
-        tokenized = [self._tokenize(d.page_content) for d in self.documents]
-        self._token_sets = [set(t) for t in tokenized]
+        self._tokenized = [self._tokenize(d.page_content) for d in self.documents]
+        self._token_sets = [set(t) for t in self._tokenized]
         # BM25Plus (not Okapi): idf stays positive on small corpora
-        self.bm25 = BM25Plus(tokenized) if any(tokenized) else None
+        self.bm25 = BM25Plus(self._tokenized) if any(self._tokenized) else None
         self._rebuild_attempted = True
+
+    def add_documents(self, documents: List[Document]) -> None:
+        """Append chunks to the BM25 index without re-tokenizing the old corpus.
+
+        Used on the append path of ingestion: instead of reading *every* chunk
+        back from Chroma and re-tokenizing the whole corpus, only the new chunks
+        are tokenized and ``BM25Plus`` is re-instantiated over the cached
+        tokenized lists (BM25's idf depends on the whole document set, so the
+        scorer object itself still has to be rebuilt, but tokenization -- the
+        expensive part -- is not repeated).
+
+        After a delete/reset/restore a full ``rebuild_bm25`` must be used
+        instead, because scrubbing the vector DB is the only reliable way to
+        know what actually remains.
+        """
+        new = [d for d in list(documents) if d.page_content and d.page_content.strip()]
+        if not new:
+            return
+        if not self._tokenized:
+            self._build_bm25(new)
+            return
+        self.documents.extend(new)
+        tokenized = [self._tokenize(d.page_content) for d in new]
+        self._tokenized.extend(tokenized)
+        self._token_sets.extend(set(t) for t in tokenized)
+        self.bm25 = BM25Plus(self._tokenized)
+        self._rebuild_attempted = True
+        logger.info("BM25 index extended by %d chunk(s)", len(new))
 
     def reset(self) -> None:
         """Call on 'Upload New / Reset'."""
-        self.documents, self.bm25, self._token_sets = [], None, []
+        self.documents, self.bm25 = [], None
+        self._tokenized, self._token_sets = [], []
         self._rebuild_attempted = False
 
     def rebuild_bm25(self, documents: List[Document]) -> None:

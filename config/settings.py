@@ -5,6 +5,10 @@ CHUNK_SIZE = 400
 CHUNK_OVERLAP = 80
 MIN_TEXT_LENGTH_FOR_OCR = 100
 OCR_DPI = 300
+# Chroma writes/reads are batched so a single huge upload or corpus never issues
+# one giant call (keeps peak RAM and Chroma request size bounded).
+CHROMA_ADD_BATCH_SIZE = int(os.getenv("ANEXUS_CHROMA_ADD_BATCH_SIZE", "512"))
+CHROMA_GET_BATCH_SIZE = int(os.getenv("ANEXUS_CHROMA_GET_BATCH_SIZE", "1000"))
 
 # ---- Optional higher-accuracy fallback engines ------------------------------
 # The baseline (PyMuPDF plain text + Tesseract OCR) is always the primary. The
@@ -31,6 +35,19 @@ STRIP_MARKDOWN_ARTIFACTS = os.getenv("ANEXUS_STRIP_MARKDOWN", "auto").strip().lo
 OCR_GIBBERISH_MIN_ALNUM_RATIO = float(
     os.getenv("ANEXUS_OCR_GIBBERISH_MIN_ALNUM_RATIO", "0.5")
 )
+
+# When a page's plain text and pymupdf4llm output are both empty/thin, the
+# optional pdfplumber table engine is tried before OCR unless turned off.
+# "auto" (default) engages it only on pages whose extracted text looks tabular.
+PDF_TABLE_EXTRACTION = (
+    os.getenv("ANEXUS_PDF_TABLE_EXTRACTION", "auto").strip().lower()
+)
+
+# ---- Dedup / data quality ---------------------------------------------------
+# When a file's content hash matches an existing document that was uploaded under
+# a *different* name: "skip" informs the user and ingests nothing (safe default);
+# "replace" removes the existing document first and re-adds it under the new name.
+DEDUP_ACTION = os.getenv("ANEXUS_DEDUP_ACTION", "skip").strip().lower()
 
 # ---- Upload limits / supported formats -------------------------------------
 MAX_UPLOAD_MB = 20            # per-file cap enforced by the UI
@@ -63,7 +80,10 @@ IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 BASE_K_RETRIEVAL = 10
 TOP_K_RERANK = 5
 
-EMBEDDING_MODEL_NAME = "BAAI/bge-large-en"
+# Env-overridable so a multilingual embedder (e.g. bge-m3) can be opted into
+# without code changes. Default is English-tuned BGE-large; switching model
+# requires re-embedding the corpus.
+EMBEDDING_MODEL_NAME = os.getenv("ANEXUS_EMBEDDING_MODEL_NAME", "BAAI/bge-large-en")
 RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 CHROMA_PERSIST_DIRECTORY = "chroma_db"

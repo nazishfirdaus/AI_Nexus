@@ -5,6 +5,8 @@ Extraction order per page:
     PyMuPDF plain text
       -> pymupdf4llm layout-aware Markdown (only if the plain text is too short
          AND the optional package is installed)
+      -> pdfplumber table extraction (only if enabled AND the page looks like a
+         table — spans are recovered as ``Column: value`` lines)
       -> OCR (Tesseract, or RapidOCR as fallback)
 
 The baseline (PyMuPDF + Tesseract) is unchanged and is what runs by default;
@@ -13,6 +15,7 @@ the extra engines are additive fallbacks.
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import pymupdf
@@ -27,13 +30,14 @@ from .common import (
     looks_like_gibberish,
     make_document,
     normalize_text,
+    render_table_lines,
     strip_markdown_artifacts,
     validate_file,
 )
 
 ALLOWED_EXTENSIONS = (".pdf",)
 
-_PDF_ENGINES = ("pymupdf", "pymupdf4llm")
+_PDF_ENGINES = ("pymupdf", "pymupdf4llm", "tables")
 
 
 def render_page_to_image(
@@ -81,6 +85,49 @@ def _should_strip_markdown(extractor: str) -> bool:
     return extractor == "pymupdf4llm"
 
 
+def _looks_tabular(text: str) -> bool:
+    """Heuristic: is this extracted text a dense table rather than prose?
+
+    Table text is typically short tokens separated by wide gaps; prose is one
+    long token flow per line. Used only to *gate* the optional pdfplumber engine
+    in "auto" mode so we don't pay for table detection on ordinary pages.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return False
+    tabular = sum(1 for ln in lines if len(re.split(r"\s{2,}", ln)) >= 3)
+    return tabular >= max(2, round(len(lines) * 0.5))
+
+
+def _extract_tables_text(plumber_pdf, page_index: int) -> str:
+    """Extract every table on a page as ``Column: value`` lines, or ""."""
+    if plumber_pdf is None:
+        return ""
+    try:
+        page = plumber_pdf.pages[page_index]
+        tables = page.extract_tables() or []
+    except Exception:
+        return ""
+    rendered: list[str] = []
+    for table in tables:
+        rendered.extend(render_table_lines(table))
+    return "\n".join(rendered)
+
+
+def _ensure_tables_pdf(cache: dict, pdf: pymupdf.Document):
+    """Lazily open one pdfplumber handle for the whole document (matching the
+    pymupdf4llm cache pattern), or store None if pdfplumber is missing."""
+    if not cache["loaded"]:
+        cache["loaded"] = True
+        try:
+            import pdfplumber
+
+            cache["pdf"] = pdfplumber.open(pdf.name)
+        except Exception:
+            cache["pdf"] = None
+    return cache["pdf"]
+
+
 def _load_pymupdf4llm_pages(pdf: pymupdf.Document) -> dict[int, str] | None:
     """Return ``{page_number: markdown}`` via pymupdf4llm, or None if unusable."""
 
@@ -123,11 +170,15 @@ def _engine_text(
     page_number: int,
     plain_text: str,
     cache: dict,
+    tables_cache: dict,
     pdf: pymupdf.Document,
 ) -> str:
     if engine == "pymupdf4llm":
         pages = _ensure_md_cache(cache, pdf)
         return pages.get(page_number, "") if pages else ""
+    if engine == "tables":
+        plumber_pdf = _ensure_tables_pdf(tables_cache, pdf)
+        return _extract_tables_text(plumber_pdf, page_number - 1)
     return plain_text
 
 
@@ -147,11 +198,21 @@ def parse_pdf(
     pdf_path = validate_file(pdf_path, ALLOWED_EXTENSIONS)
 
     primary = _normalize_engine(engine)
-    fallback = "pymupdf4llm" if primary == "pymupdf" else "pymupdf"
+    if primary == "tables":
+        # User picked table extraction first; keep the classic two behind it.
+        engines: list[str] = ["tables", "pymupdf4llm", "pymupdf"]
+    else:
+        fallback = "pymupdf4llm" if primary == "pymupdf" else "pymupdf"
+        engines = [primary, fallback]
+    # Optional pdfplumber table engine sits between the layout engines and OCR
+    # unless disabled. In "auto" it only engages on table-like pages.
+    if settings.PDF_TABLE_EXTRACTION != "off":
+        engines.append("tables")
 
     pdf = pymupdf.open(pdf_path)
     documents: list[Document] = []
     md_cache = {"loaded": False, "pages": None}
+    tables_cache: dict = {"loaded": False, "pdf": None}
 
     try:
         if len(pdf) == 0:
@@ -172,13 +233,20 @@ def parse_pdf(
             chosen_engine: str | None = None
             chosen_text = ""
 
-            for name in (primary, fallback):
+            for name in engines:
+                if (
+                    name == "tables"
+                    and settings.PDF_TABLE_EXTRACTION == "auto"
+                    and not _looks_tabular(plain_text)
+                ):
+                    continue
                 text = _engine_text(
                     name,
                     page=page,
                     page_number=page_number,
                     plain_text=plain_text,
                     cache=md_cache,
+                    tables_cache=tables_cache,
                     pdf=pdf,
                 )
                 if has_sufficient_text(
@@ -217,6 +285,11 @@ def parse_pdf(
             )
 
     finally:
+        if tables_cache["pdf"] is not None:
+            try:
+                tables_cache["pdf"].close()
+            except Exception:
+                pass
         pdf.close()
 
     return documents

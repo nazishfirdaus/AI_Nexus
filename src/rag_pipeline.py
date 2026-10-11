@@ -11,6 +11,7 @@ conversation history, summaries and rewrite prompts.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
 from src.ingestion.document_store import DocumentStore
 # parse_document imported lazily in ingest_document to reduce startup cost
+from src.ingestion.parsers.common import normalize_text
 from src.ingestion.vectordb import VectorDB
 from src.memory.history import (
     build_history,
@@ -43,6 +45,32 @@ from src.routing.semantic_router import RouteDecision, SemanticRouter
 logger = logging.getLogger(__name__)
 
 
+def _sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _chunk_key(text: str) -> str:
+    """Normalized, lowercased digest used to spot exact-duplicate chunks."""
+    return _sha256_hex(normalize_text(text or "").lower())
+
+
+def _pages_digest(page_documents: Iterable[Document]) -> str:
+    """Deterministic content digest for non-byte sources (web/cloud crawls)."""
+    return _sha256_hex(
+        "\n\n".join(normalize_text(p.page_content or "") for p in page_documents)
+    )
+
+
+class DuplicateDocumentError(ValueError):
+    """Raised when content already exists under another document name and the
+    configured DEDUP_ACTION is "skip". The UI reports it as information, not as an
+    ingestion failure."""
+
+
 @dataclass
 class IngestionResult:
     pages: int
@@ -51,6 +79,9 @@ class IngestionResult:
     filename: str
     duration_s: float
     vectors_added: int = 0
+    content_hash: Optional[str] = None
+    pages_empty_dropped: int = 0
+    pages_ocr: int = 0
 
 
 @dataclass
@@ -135,8 +166,13 @@ class RAGPipeline:
         page_documents = parse_document(file_path)
         if not page_documents:
             raise ValueError(f"No text could be extracted from {filename}")
+        content_hash = _sha256_bytes(file_path.read_bytes())
         return self.ingest_parsed_documents(
-            page_documents, filename=filename, document_id=document_id, source=filename
+            page_documents,
+            filename=filename,
+            document_id=document_id,
+            source=filename,
+            content_hash=content_hash,
         )
 
     def ingest_parsed_documents(
@@ -146,6 +182,7 @@ class RAGPipeline:
         filename: str,
         document_id: Optional[str] = None,
         source: Optional[str] = None,
+        content_hash: Optional[str] = None,
     ) -> IngestionResult:
         """Chunk -> embed -> store -> rebuild BM25 for already-parsed pages.
 
@@ -153,6 +190,10 @@ class RAGPipeline:
         yields several page Documents under a single document id). `source`, when
         given, overrides the per-page source metadata (file uploads set it to the
         filename; web pages keep their own URL as source).
+
+        `content_hash` enables content-level dedup: re-ingesting the same bytes
+        under a different name either skips (``DEDUP_ACTION=skip``, raising
+        DuplicateDocumentError) or replaces the earlier document (``replace``).
         """
         if not page_documents:
             raise ValueError(f"No text could be extracted from {filename}")
@@ -168,9 +209,36 @@ class RAGPipeline:
                 meta["source"] = source
             page.metadata = meta
 
+        # Quality stats for the ingest report (computed on the raw parser pages).
+        pages_empty_dropped = sum(
+            1 for p in page_documents if not (p.page_content or "").strip()
+        )
+        pages_ocr = sum(
+            1
+            for p in page_documents
+            if (p.metadata or {}).get("ocr_used") is True
+        )
+
+        content_hash = content_hash or _pages_digest(page_documents)
+
+        # Content-level dedup: same content under a different name.
+        existing = self.document_store.find_by_content_hash(content_hash)
+        if existing and existing["id"] != document_id:
+            if settings.DEDUP_ACTION == "replace":
+                self.remove_document(existing["id"])
+            else:
+                raise DuplicateDocumentError(
+                    f"'{filename}' is a duplicate of '{existing['filename']}' "
+                    "(same content) and was not ingested."
+                )
+
         chunks = self.chunker.split(page_documents)
         if not chunks:
             raise ValueError(f"No usable chunks were produced from {filename}")
+
+        # Drop exact-duplicate chunks within this batch (keep the first) so
+        # repeated boilerplate never bloats the vector store.
+        chunks, dup_dropped = self._dedup_chunks(chunks)
 
         vectors = self.embedder.embed_documents(chunks)
         if len(vectors) != len(chunks):
@@ -183,13 +251,22 @@ class RAGPipeline:
         # stored under a legacy id (stem-only, from before ids included the
         # extension) are reconciled here so a re-ingest replaces instead of
         # duplicating.
+        replaced = self.document_store.get(document_id) is not None
         for record in self.document_store.list():
             if record["filename"] == filename and record["id"] != document_id:
                 self.vector_db.delete_document(record["id"])
                 self.document_store.remove(record["id"])
-        self.vector_db.delete_document(document_id)
+                replaced = True
+        if replaced:
+            self.vector_db.delete_document(document_id)
         self.vector_db.add_chunks(chunks, vectors)
-        self.retriever.rebuild_bm25(self.vector_db.get_all_documents())
+        if replaced:
+            # Old chunks of a replaced document may still be in the in-memory
+            # BM25 index; only a full rebuild from the vector DB is correct here.
+            self.retriever.rebuild_bm25(self.vector_db.get_all_documents())
+        else:
+            # New document: extend the index with just these chunks.
+            self.retriever.add_documents(chunks)
 
         self.active_document_id = document_id
         self.active_filename = filename
@@ -201,13 +278,16 @@ class RAGPipeline:
             chunks=len(chunks),
             vectors=len(vectors),
             duration_s=duration,
+            content_hash=content_hash,
         )
         logger.info(
-            "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs",
+            "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs "
+            "(+%d chunks dropped as duplicates)",
             filename,
             len(page_documents),
             len(chunks),
             duration,
+            dup_dropped,
         )
         return IngestionResult(
             pages=len(page_documents),
@@ -216,7 +296,27 @@ class RAGPipeline:
             filename=filename,
             duration_s=duration,
             vectors_added=len(vectors),
+            content_hash=content_hash,
+            pages_empty_dropped=pages_empty_dropped,
+            pages_ocr=pages_ocr,
         )
+
+    @staticmethod
+    def _dedup_chunks(chunks: list[Document]) -> tuple[list[Document], int]:
+        """Drop exact-duplicate chunks within one batch (keep the first occurrence).
+
+        Uses the normalized, lowercased content digest, so chunks that differ only
+        in casing/whitespace collapse to one. Returns (kept_chunks, dropped_count).
+        """
+        seen: set[str] = set()
+        kept: list[Document] = []
+        for chunk in chunks:
+            key = _chunk_key(chunk.page_content)
+            if key in seen:
+                continue
+            seen.add(key)
+            kept.append(chunk)
+        return kept, len(chunks) - len(kept)
 
     def remove_document(self, document_id: str) -> bool:
         """Delete one document's chunks and registry entry. Others stay intact."""

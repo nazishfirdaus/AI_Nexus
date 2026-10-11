@@ -253,28 +253,50 @@ def group_sections(
     return pages
 
 
+_SEPARATOR_CELL_RE = re.compile(r"^[\-\|:=_.·~]+$")
+
+
+def _padded(cells: list[str], width: int) -> list[str]:
+    if len(cells) < width:
+        return cells + [""] * (width - len(cells))
+    return cells
+
+
 def render_table_lines(rows: list[list[str]]) -> list[str]:
     """Render a table (first row = header) as ``Header: value | ...`` lines.
 
     Row-per-record rendering keeps column context attached to each value, which
     is what dense + BM25 retrieval matches on.
+
+    Hardening for real-world sheets: ragged rows are padded to the widest row so
+    values stay aligned with their headers (pdfplumber tables and merged xlsx
+    ranges routinely produce uneven widths), empty rows are skipped, and pure
+    separator rows (``---`` / ``|---|---|``) are dropped instead of polluting
+    the corpus.
     """
 
-    cleaned = [
-        [str(cell).strip() for cell in row]
-        for row in rows
-        if any(str(cell).strip() for cell in row)
-    ]
+    cleaned: list[list[str]] = []
+    for row in rows:
+        cells = [str(cell).strip() for cell in row]
+        if not any(cells):
+            continue
+        separators = [c for c in cells if c]
+        if all(_SEPARATOR_CELL_RE.match(c) for c in separators):
+            continue
+        cleaned.append(cells)
+
     if not cleaned:
         return []
 
-    header = cleaned[0]
+    width = max(len(row) for row in cleaned)
+    header = _padded(cleaned[0], width)
     lines: list[str] = []
 
     for row in cleaned[1:]:
+        data = _padded(row, width)
         pairs = [
             f"{name}: {value}"
-            for name, value in zip(header, row)
+            for name, value in zip(header, data)
             if name and value
         ]
         if pairs:

@@ -19,7 +19,12 @@ from typing import Iterable, List, Optional
 from langchain_core.documents import Document
 from typing import TYPE_CHECKING
 
-from config.settings import CHROMA_PERSIST_DIRECTORY, COLLECTION_NAME
+from config.settings import (
+    CHROMA_ADD_BATCH_SIZE,
+    CHROMA_GET_BATCH_SIZE,
+    CHROMA_PERSIST_DIRECTORY,
+    COLLECTION_NAME,
+)
 
 if TYPE_CHECKING:
     from chromadb import PersistentClient
@@ -102,12 +107,16 @@ class VectorDB:
             texts.append(doc.page_content)
             embeddings_out.append([float(v) for v in vector])
 
-        self._collection.add(
-            ids=ids,
-            embeddings=embeddings_out,
-            metadatas=metadatas,
-            documents=texts,
-        )
+        # Batch the write so a very large document never issues a single giant
+        # request or a single in-Chroma buffer.
+        for start in range(0, len(ids), CHROMA_ADD_BATCH_SIZE):
+            end = start + CHROMA_ADD_BATCH_SIZE
+            self._collection.add(
+                ids=ids[start:end],
+                embeddings=embeddings_out[start:end],
+                metadatas=metadatas[start:end],
+                documents=texts[start:end],
+            )
         logger.info("Added %d chunk(s) to Chroma collection %s", len(ids), self._collection_name)
         return len(ids)
 
@@ -187,22 +196,32 @@ class VectorDB:
         logger.info("Reset Chroma collection %s", self._collection_name)
 
     def get_all_documents(self) -> List[Document]:
-        """Return every stored chunk as a LangChain Document (used to rebuild BM25)."""
+        """Return every stored chunk as a LangChain Document (used to rebuild BM25).
+
+        Reads in pages of ``CHROMA_GET_BATCH_SIZE`` so memory stays bounded even
+        for a large corpus.
+        """
         total = self._collection.count()
         if total == 0:
             return []
-        result = self._collection.get(
-            include=["documents", "metadatas"],
-            limit=total,
-        )
         docs: List[Document] = []
-        metadatas = result.get("metadatas") or []
-        documents = result.get("documents") or []
-        for meta, text in zip(metadatas, documents):
-            md = dict(meta or {})
-            if md.get("ocr_used") is not None:
-                md["ocr_used"] = bool(md["ocr_used"])
-            docs.append(Document(page_content=text or "", metadata=md))
+        offset = 0
+        while offset < total:
+            result = self._collection.get(
+                include=["documents", "metadatas"],
+                limit=CHROMA_GET_BATCH_SIZE,
+                offset=offset,
+            )
+            metadatas = result.get("metadatas") or []
+            documents = result.get("documents") or []
+            for meta, text in zip(metadatas, documents):
+                md = dict(meta or {})
+                if md.get("ocr_used") is not None:
+                    md["ocr_used"] = bool(md["ocr_used"])
+                docs.append(Document(page_content=text or "", metadata=md))
+            if len(metadatas) < CHROMA_GET_BATCH_SIZE:
+                break
+            offset += CHROMA_GET_BATCH_SIZE
         return docs
 
     def close(self) -> None:
