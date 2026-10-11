@@ -1,8 +1,8 @@
 """Multi-format parser tests.
 
 Fixtures are generated with the same libraries the parsers use, so no binary
-sample files are committed. The image test needs Tesseract and skips when it
-is unavailable.
+sample files are committed. Tests that need an OCR engine (Tesseract baseline or
+the optional RapidOCR fallback) skip when neither is available.
 """
 from pathlib import Path
 
@@ -11,11 +11,13 @@ from langchain_core.documents import Document
 
 from src.ingestion.chunker import Chunker
 from src.ingestion.parsers import SUPPORTED_EXTENSIONS, parse_document
+from src.ingestion.parsers import ocr as ocr_mod
 from src.ingestion.parsers.common import (
     document_id_for,
     group_sections,
     render_table_lines,
 )
+from src.ingestion.parsers.image import parse_image
 
 METADATA_KEYS = {"document_id", "filename", "page_number", "source", "ocr_used"}
 
@@ -32,14 +34,19 @@ def _assert_standard_schema(documents):
     assert pages == list(range(1, len(documents) + 1))
 
 
-def _tesseract_available() -> bool:
+def _ocr_engine_available(name: str) -> bool:
     try:
-        import pytesseract
-
-        pytesseract.get_tesseract_version()
-        return True
+        return ocr_mod.ocr_available(name)
     except Exception:
         return False
+
+
+def _pymupdf4llm_available() -> bool:
+    try:
+        import pymupdf4llm  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 # --------------------------------------------------------------------- txt/md
@@ -225,8 +232,7 @@ def test_parse_pptx_no_text_raises(tmp_path):
 
 
 # -------------------------------------------------------------------- images
-@pytest.mark.skipif(not _tesseract_available(), reason="tesseract not installed")
-def test_parse_image_ocr(tmp_path):
+def _write_scan(tmp_path):
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", (1000, 200), "white")
@@ -234,6 +240,14 @@ def test_parse_image_ocr(tmp_path):
     draw.text((20, 80), "Loan account number 1234567890 interest rate 7.25", fill="black")
     path = tmp_path / "scan.png"
     image.save(str(path))
+    return path
+
+
+@pytest.mark.skipif(
+    not _ocr_engine_available("tesseract"), reason="tesseract not installed"
+)
+def test_parse_image_ocr(tmp_path):
+    path = _write_scan(tmp_path)
 
     documents = parse_document(path)
 
@@ -242,6 +256,20 @@ def test_parse_image_ocr(tmp_path):
     assert documents[0].metadata["ocr_used"] is True
     assert documents[0].metadata["page_number"] == 1
     assert "1234567890" in documents[0].page_content
+
+
+@pytest.mark.skipif(
+    not _ocr_engine_available("rapidocr"), reason="rapidocr not installed"
+)
+def test_parse_image_ocr_rapidocr_engine(tmp_path):
+    path = _write_scan(tmp_path)
+
+    documents = parse_image(path, ocr_engine="rapidocr")
+
+    _assert_standard_schema(documents)
+    assert documents[0].metadata["extractor"] == "ocr"
+    assert documents[0].metadata["ocr_engine"] == "rapidocr"
+    assert documents[0].metadata["ocr_used"] is True
 
 
 # ----------------------------------------------------------------- dispatcher
@@ -269,6 +297,74 @@ def test_parse_pdf_through_dispatcher_still_works():
     documents = parse_document(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
     _assert_standard_schema(documents)
     assert len(documents) == 12
+
+
+def test_parse_pdf_defaults_to_pymupdf_baseline():
+    documents = parse_document(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+    assert {d.metadata["extractor"] for d in documents} == {"pymupdf"}
+    assert all(d.metadata["ocr_used"] is False for d in documents)
+
+
+def test_parse_pdf_uses_pymupdf4llm_fallback_for_weak_pages(monkeypatch):
+    """Weak baseline pages are retried with pymupdf4llm before OCR."""
+    from src.ingestion.parsers import pdf as pdf_mod
+    from src.ingestion.parsers import ocr as ocr_mod
+
+    monkeypatch.setattr(
+        pdf_mod,
+        "_load_pymupdf4llm_pages",
+        lambda _pdf: {n: f"### markdown page {n}" for n in range(1, 13)},
+    )
+    monkeypatch.setattr(
+        pdf_mod,
+        "has_sufficient_text",
+        lambda text, min_text_length=0: text.startswith("###"),
+    )
+    monkeypatch.setattr(
+        ocr_mod,
+        "ocr_image_with_engine",
+        lambda image, engine=None: ("ocr text", "tesseract"),
+    )
+
+    documents = pdf_mod.parse_pdf(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+
+    assert len(documents) == 12
+    assert {d.metadata["extractor"] for d in documents} == {"pymupdf4llm"}
+    assert all(d.metadata["ocr_used"] is False for d in documents)
+
+
+def test_parse_pdf_falls_back_to_ocr_when_all_text_insufficient(monkeypatch):
+    from src.ingestion.parsers import pdf as pdf_mod
+    from src.ingestion.parsers import ocr as ocr_mod
+
+    monkeypatch.setattr(pdf_mod, "_engine_text", lambda *a, **k: "")
+    monkeypatch.setattr(
+        ocr_mod,
+        "ocr_image_with_engine",
+        lambda image, engine=None: ("ocr page text", "tesseract"),
+    )
+
+    documents = pdf_mod.parse_pdf(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+
+    assert len(documents) == 12
+    assert {d.metadata["extractor"] for d in documents} == {"ocr"}
+    assert all(d.metadata["ocr_used"] is True for d in documents)
+    assert all(d.metadata["ocr_engine"] == "tesseract" for d in documents)
+
+
+@pytest.mark.skipif(
+    not _pymupdf4llm_available(), reason="pymupdf4llm not installed"
+)
+def test_parse_pdf_pymupdf4llm_engine_selected():
+    from src.ingestion.parsers.pdf import parse_pdf
+
+    documents = parse_pdf(
+        Path("Synthetic_Mortgage_Loan_File_TEST.pdf"), engine="pymupdf4llm"
+    )
+
+    _assert_standard_schema(documents)
+    assert len(documents) == 12
+    assert {d.metadata["extractor"] for d in documents} == {"pymupdf4llm"}
 
 
 # -------------------------------------------------------------------- helpers

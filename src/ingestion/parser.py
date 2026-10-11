@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from src.ingestion.parsers import parse_document
 from src.ingestion.parsers.common import has_sufficient_text, normalize_text
+from src.ingestion.parsers.ocr import ocr_available, ocr_image, ocr_image_with_engine
 from src.ingestion.parsers.pdf import (
     extract_text_with_ocr,
     parse_pdf,
@@ -18,6 +19,9 @@ __all__ = [
     "extract_text_with_ocr",
     "has_sufficient_text",
     "normalize_text",
+    "ocr_available",
+    "ocr_image",
+    "ocr_image_with_engine",
     "parse_document",
     "parse_pdf",
     "render_page_to_image",

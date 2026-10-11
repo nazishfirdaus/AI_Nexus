@@ -6,6 +6,17 @@ CHUNK_OVERLAP = 80
 MIN_TEXT_LENGTH_FOR_OCR = 100
 OCR_DPI = 300
 
+# ---- Optional higher-accuracy fallback engines ------------------------------
+# The baseline (PyMuPDF plain text + Tesseract OCR) is always the primary. The
+# engines below engage ONLY when the primary fails or yields too little text,
+# and only if their optional package is installed (see requirements-ocr.txt).
+#
+# PDF text: when a page's plain PyMuPDF text is insufficient, retry that page
+# with pymupdf4llm (layout-aware Markdown) before falling back to OCR.
+PDF_TEXT_ENGINE = os.getenv("ANEXUS_PDF_TEXT_ENGINE", "pymupdf").strip().lower()
+# OCR: when Tesseract is unavailable or returns nothing, retry with RapidOCR.
+OCR_ENGINE = os.getenv("ANEXUS_OCR_ENGINE", "tesseract").strip().lower()
+
 # ---- Upload limits / supported formats -------------------------------------
 MAX_UPLOAD_MB = 20            # per-file cap enforced by the UI
 MAX_PDF_PAGES = 100           # hard cap on PDF page count

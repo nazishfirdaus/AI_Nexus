@@ -61,12 +61,12 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 
 | Format | Extensions | How text is extracted |
 |--------|-----------|------------------------|
-| PDF | `.pdf` | PyMuPDF per page, Tesseract OCR fallback for scanned pages (≤ 100 pages, ≤ 20 MB) |
+| PDF | `.pdf` | PyMuPDF per page, Tesseract OCR fallback for scanned pages (≤ 100 pages, ≤ 20 MB); optional pymupdf4llm fallback for weak pages |
 | Plain text / Markdown | `.txt`, `.md` | decoded (UTF-8 → Latin-1), split on blank lines |
 | Word | `.docx` | python-docx; headings start a new citation page, tables rendered row-per-record |
 | Spreadsheet | `.xlsx`, `.csv` | openpyxl / csv; `Header: value` rows, 50 rows per citation page, one page series per sheet |
 | PowerPoint | `.pptx` | python-pptx; one citation page per slide (incl. tables and speaker notes) |
-| Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`, `.tiff` | Tesseract OCR (single page) |
+| Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`, `.tiff` | Tesseract OCR (single page); optional RapidOCR fallback |
 
 Non-PDF formats have no real pages, so logical units (heading sections, slide
 numbers, sheet row blocks) act as pages — citations like "Page 3" mean slide 3
@@ -84,6 +84,31 @@ or the third row block. A document's identity is its **full filename**, so
   MinIO, Cloudflare R2) from the Settings page, then import every supported file
   under a prefix. Objects are streamed with a size cap; the same format parsers
   used for uploads handle the bytes.
+
+## Optional higher-accuracy fallback engines
+
+The baseline ingestion stack (**PyMuPDF** plain text + **Tesseract** OCR) runs
+exactly as before and needs no extra setup. Two optional engines can be added as
+automatic fallbacks that engage **only when the baseline fails or returns too
+little text**:
+
+- **pymupdf4llm** — layout-aware Markdown. When a PDF page's plain text is too
+  short, that page is retried with pymupdf4llm before OCR.
+- **RapidOCR** — when Tesseract is unavailable or returns no text, RapidOCR is
+  tried instead.
+
+Install the extras (adds `opencv-python-headless` and the self-contained layout
+and OCR models):
+
+```bash
+pip install -r requirements-ocr.txt
+```
+
+Both engines are optional: without them the app degrades back to the baseline.
+Select the *primary* engine (the other becomes the fallback) with
+`ANEXUS_PDF_TEXT_ENGINE` (`pymupdf`|`pymupdf4llm`) and `ANEXUS_OCR_ENGINE`
+(`tesseract`|`rapidocr`); each extracted page is tagged with an `extractor` and,
+for OCR, an `ocr_engine` field.
 
 ## Features
 
@@ -125,7 +150,7 @@ or the third row block. A document's identity is its **full filename**, so
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 358 passing (default: real-model tests skipped)
+python -m pytest -q          # 373 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
 ```
 
 Real-model tests (BGE embedder, live retrieval) can be run locally with:
@@ -161,7 +186,7 @@ and uploads `evaluation/results.json` as an artifact.
 ```
 src/
   auth/          secrets vault (Fernet), user store (SQLite), tenant naming, OIDC claim resolution
-  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, CSV/XLSX, PPTX, text, images), sources/ (website crawler, S3 client), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
+  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, CSV/XLSX, PPTX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
   retrieval/     hybrid retriever (dense+BM25 RRF), cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker

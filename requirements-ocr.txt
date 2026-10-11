@@ -1,0 +1,14 @@
+# Optional higher-accuracy fallback engines for ingestion.
+#
+# The baseline (PyMuPDF plain text + Tesseract OCR) needs none of these. Install
+# this file only to enable the fallbacks:
+#
+#   PDF  : pymupdf4llm is tried, for pages whose plain text is too short, before OCR
+#   OCR  : RapidOCR is tried when Tesseract is unavailable or returns no text
+#
+#   pip install -r requirements-ocr.txt
+#
+# They add opencv-python-headless and the (self-contained) layout/OCR models.
+
+pymupdf4llm
+rapidocr
