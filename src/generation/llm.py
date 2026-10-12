@@ -354,8 +354,8 @@ def build_handler_from_credentials(
     """Build the handler from a user's stored credentials.
 
     When the user has supplied at least one provider key, ONLY those keys are
-    used - the admin's environment keys are never spent on a user's behalf. With
-    no user keys, the handler falls back to the environment defaults so a
+    used - the deployment's environment keys are never spent on a user's behalf.
+    With no user keys, the handler falls back to the environment defaults so a
     freshly-onboarded account still works.
     """
     creds = credentials or {}

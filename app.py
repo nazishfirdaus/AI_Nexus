@@ -106,11 +106,11 @@ def _get_user_store() -> UserStore:
 
 
 def _dev_user() -> dict:
-    """Local-development identity (ANEXUS_AUTH_DISABLED), auto-provisioned admin."""
+    """Local-development identity (ANEXUS_AUTH_DISABLED), auto-provisioned user."""
     store = _get_user_store()
     email = settings.DEV_USER_EMAIL
     return store.get_by_email(email) or store.provision(
-        email, role=settings.ROLE_ADMIN, display_name="Local dev"
+        email, display_name="Local dev"
     )
 
 
@@ -728,11 +728,13 @@ def render_sidebar() -> None:
         if ctx is not None:
             user = ctx.user
             st.markdown(f"**{user.get('display_name') or user.get('email')}**")
-            st.caption(f"{user['email']} · {user['role']}")
-            options = ["Chat", "Settings"]
-            if user["role"] == settings.ROLE_ADMIN:
-                options.append("Admin")
-            st.radio("Navigation", options, key="nav", label_visibility="collapsed")
+            st.caption(user["email"])
+            st.radio(
+                "Navigation",
+                ["Chat", "Settings"],
+                key="nav",
+                label_visibility="collapsed",
+            )
             if not settings.AUTH_DISABLED and st.button("Sign out", use_container_width=True):
                 st.logout()
             st.divider()
@@ -741,7 +743,7 @@ def render_sidebar() -> None:
 
 
 def render_login() -> None:
-    """Login / access-denied screen shown before any user data is touched."""
+    """Login screen shown before any user data is touched."""
     st.title(APP_TITLE)
     st.caption(DISCLAIMER)
     try:
@@ -753,20 +755,17 @@ def render_login() -> None:
         )
         return
     if logged_in:
-        st.error(
-            "Your account is not authorized yet. Ask an administrator to provision "
-            "it, then sign in again."
-        )
+        st.error("Your account is disabled. Contact the operator.")
         if st.button("Sign out"):
             st.logout()
         return
-    st.markdown("Sign in to upload documents and ask questions. Access is by invitation.")
+    st.markdown("Sign in to upload documents and ask questions.")
     if st.button(f"Sign in with {settings.AUTH_PROVIDER_NAME}", type="primary"):
         st.login()
 
 
 # ---------------------------------------------------------------------------
-# Settings (BYOK) and Admin
+# Settings (BYOK)
 # ---------------------------------------------------------------------------
 def _rebuild_context() -> None:
     """Force the per-user pipeline to rebuild on the next rerun (after key changes)."""
@@ -834,70 +833,6 @@ def render_settings(user: dict) -> None:
         st.rerun()
 
 
-def render_admin(user: dict) -> None:
-    st.title("Admin")
-    store = _get_user_store()
-
-    st.subheader("Provision a user")
-    with st.form("provision_user"):
-        email = st.text_input("Email address").strip().lower()
-        role = st.selectbox("Role", [settings.ROLE_USER, settings.ROLE_ADMIN])
-        submitted = st.form_submit_button("Provision account", type="primary")
-    if submitted:
-        if not email:
-            st.warning("Enter an email address.")
-        elif store.get_by_email(email):
-            st.warning("That email is already provisioned.")
-        else:
-            store.provision(email, role=role)
-            st.success(f"Provisioned {email} as {role}.")
-            st.rerun()
-
-    st.subheader(f"Users ({len(store.list_users())})")
-    for record in store.list_users():
-        is_self = record["id"] == user["id"]
-        with st.expander(f"{record['email']} — {record['role']} — {record['status']}"):
-            st.caption(
-                f"name: {record.get('display_name') or '—'} · "
-                f"created: {record['created_at'][:19]} · "
-                f"last login: {(record.get('last_login_at') or 'never')[:19]}"
-            )
-            role = st.selectbox(
-                "Role",
-                [settings.ROLE_USER, settings.ROLE_ADMIN],
-                index=0 if record["role"] == settings.ROLE_USER else 1,
-                key=f"arole_{record['id']}",
-                disabled=is_self,
-            )
-            status = st.selectbox(
-                "Status",
-                [settings.STATUS_ACTIVE, settings.STATUS_DISABLED],
-                index=0 if record["status"] == settings.STATUS_ACTIVE else 1,
-                key=f"astatus_{record['id']}",
-                disabled=is_self,
-            )
-            col_save, col_remove = st.columns(2)
-            if col_save.button("Save", key=f"asave_{record['id']}", disabled=is_self):
-                is_last_admin = (
-                    record["role"] == settings.ROLE_ADMIN
-                    and role == settings.ROLE_USER
-                    and store.admin_count() <= 1
-                )
-                if is_last_admin:
-                    st.error("Cannot demote the last remaining admin.")
-                else:
-                    store.set_role(record["id"], role)
-                    store.set_status(record["id"], status)
-                    st.success("Updated.")
-                    st.rerun()
-            if col_remove.button(
-                "Remove", key=f"aremove_{record['id']}", disabled=is_self
-            ):
-                store.remove(record["id"])
-                st.success("Removed.")
-                st.rerun()
-
-
 # ---------------------------------------------------------------------------
 # Entry point (import-safe so `streamlit run app.py` and pytest both work)
 # ---------------------------------------------------------------------------
@@ -911,16 +846,13 @@ def _apply_streamlit_secrets() -> None:
         secrets = st.secrets
     except Exception:
         return
-    for key in ("ANEXUS_SECRET_KEY", "ANEXUS_BOOTSTRAP_ADMIN_EMAIL"):
+    for key in ("ANEXUS_SECRET_KEY",):
         try:
             if key in secrets and not os.environ.get(key):
                 os.environ[key] = str(secrets[key])
         except Exception:
             continue
     settings.SECRET_KEY = os.environ.get("ANEXUS_SECRET_KEY", "").strip()
-    settings.BOOTSTRAP_ADMIN_EMAIL = (
-        os.environ.get("ANEXUS_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
-    )
 
 
 def main() -> None:
@@ -939,9 +871,6 @@ def main() -> None:
     page = st.session_state.get("nav", "Chat")
     if page == "Settings":
         render_settings(user)
-        return
-    if page == "Admin" and user["role"] == settings.ROLE_ADMIN:
-        render_admin(user)
         return
 
     uploaded, use_sample = render_landing()

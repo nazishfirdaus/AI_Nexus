@@ -1,4 +1,4 @@
-"""SQLite-backed account registry: users, roles and encrypted credentials.
+"""SQLite-backed account registry: users and encrypted credentials.
 
 Mirrors the storage conventions of `DocumentStore` / `ChatStore`: stdlib sqlite3,
 a fresh connection per operation (safe under Streamlit's threaded reruns) and an
@@ -11,8 +11,9 @@ Schema:
 
 `id` is a stable internal tenant key generated when the account is provisioned.
 `oidc_sub` is bound on first login; accounts are matched by sub first, then by
-email. Provisioning is admin-driven: an unknown email is denied unless it matches
-`BOOTSTRAP_ADMIN_EMAIL` and no admin exists yet.
+email. Provisioning is automatic: any authenticated OIDC identity is granted a
+normal user account on first login. `role` is retained for backward compatibility
+but is always ``"user"``.
 
 Credentials live in `user_secrets` as an opaque ciphertext produced by
 `SecretsVault`; this store never sees plaintext keys.
@@ -120,28 +121,17 @@ class UserStore:
             ).fetchall()
         return [self._to_dict(r) for r in rows]
 
-    def admin_count(self) -> int:
-        with self._lock, self._connection() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM users WHERE role = ? AND status = ?",
-                (settings.ROLE_ADMIN, settings.STATUS_ACTIVE),
-            ).fetchone()
-        return int(row["n"])
-
     # ------------------------------------------------------------------ writes
     def provision(
         self,
         email: str,
-        role: str = settings.ROLE_USER,
         display_name: str = "",
         oidc_sub: Optional[str] = None,
     ) -> dict:
-        """Create an account (admin action). Email must be new."""
+        """Create a normal user account. Email must be new."""
         email = _norm_email(email)
         if not email:
             raise ValueError("email is required")
-        if role not in settings.VALID_ROLES:
-            raise ValueError(f"role must be one of {settings.VALID_ROLES}, got {role!r}")
         existing = self.get_by_email(email)
         if existing:
             return existing
@@ -152,19 +142,18 @@ class UserStore:
                 "INSERT INTO users "
                 "(id, oidc_sub, email, display_name, role, status, created_at, last_login_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
-                (user_id, oidc_sub, email, display_name, role, settings.STATUS_ACTIVE, now),
+                (user_id, oidc_sub, email, display_name, settings.ROLE_USER, settings.STATUS_ACTIVE, now),
             )
-        logger.info("Provisioned %s account %s (%s)", role, email, user_id)
+        logger.info("Provisioned account %s (%s)", email, user_id)
         return self.get_by_id(user_id)  # type: ignore[return-value]
 
     def resolve_login(
         self, oidc_sub: Optional[str], email: str, display_name: str = ""
     ) -> Optional[dict]:
-        """Map an OIDC login to an account, or return None if not allowed.
+        """Map an OIDC login to an account, creating one on first login.
 
         Matching order: `oidc_sub`, then email. A disabled account is denied. An
-        unknown email is auto-provisioned as an active admin only when it matches
-        `BOOTSTRAP_ADMIN_EMAIL` and no admin exists yet.
+        unknown identity is auto-provisioned as a normal user.
         """
         email = _norm_email(email)
         if not email:
@@ -196,25 +185,9 @@ class UserStore:
                 )
             return self.get_by_id(row["id"])
 
-        if (
-            settings.BOOTSTRAP_ADMIN_EMAIL
-            and email == settings.BOOTSTRAP_ADMIN_EMAIL
-            and self.admin_count() == 0
-        ):
-            logger.info("Bootstrapping first admin from %s", email)
-            return self.provision(
-                email, role=settings.ROLE_ADMIN, display_name=display_name,
-                oidc_sub=oidc_sub,
-            )
-
-        logger.warning("Denied unknown account %s (admin must provision it)", email)
-        return None
-
-    def set_role(self, user_id: str, role: str) -> None:
-        if role not in settings.VALID_ROLES:
-            raise ValueError(f"role must be one of {settings.VALID_ROLES}, got {role!r}")
-        with self._lock, self._connection() as conn:
-            conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        # Unknown identity: grant a normal account on first login.
+        logger.info("Auto-provisioning new account from %s", email)
+        return self.provision(email, display_name=display_name, oidc_sub=oidc_sub)
 
     def set_status(self, user_id: str, status: str) -> None:
         if status not in settings.VALID_STATUSES:

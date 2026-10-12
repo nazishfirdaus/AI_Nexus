@@ -90,8 +90,7 @@ def test_resolve_user_none_when_logged_out(user_store):
     assert identity.resolve_user(user_store, user) is None
 
 
-def test_resolve_user_maps_to_provisioned_account(user_store, monkeypatch):
-    monkeypatch.setattr(settings, "BOOTSTRAP_ADMIN_EMAIL", "")
+def test_resolve_user_maps_to_account(user_store):
     user_store.provision("a@b.com", display_name="Alice")
     user = SimpleNamespace(is_logged_in=True, sub="s1", email="a@b.com", name="Alice")
     resolved = identity.resolve_user(user_store, user)
@@ -99,10 +98,11 @@ def test_resolve_user_maps_to_provisioned_account(user_store, monkeypatch):
     assert resolved["email"] == "a@b.com"
 
 
-def test_resolve_user_denies_unprovisioned(user_store, monkeypatch):
-    monkeypatch.setattr(settings, "BOOTSTRAP_ADMIN_EMAIL", "")
+def test_resolve_user_auto_provisions_unknown(user_store):
     user = SimpleNamespace(is_logged_in=True, sub="s1", email="nobody@b.com", name="")
-    assert identity.resolve_user(user_store, user) is None
+    resolved = identity.resolve_user(user_store, user)
+    assert resolved is not None
+    assert resolved["email"] == "nobody@b.com"
 
 
 # ------------------------------------------------------------------ per-user keys

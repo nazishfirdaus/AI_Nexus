@@ -191,11 +191,8 @@ USER_DATA_DIR = os.path.join(_PROJECT_ROOT, "data", "users")
 # stretched with SHA-256 into a 32-byte key. Only needed to save credentials.
 SECRET_KEY = os.getenv("ANEXUS_SECRET_KEY", "").strip()
 
-# The first login from this email is auto-provisioned as an admin. Empty = off.
-BOOTSTRAP_ADMIN_EMAIL = os.getenv("ANEXUS_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
-
 # Local development escape hatch: when true, skip OIDC and act as DEV_USER_EMAIL
-# (auto-provisioned as an admin). NEVER enable this in a deployed environment.
+# (auto-provisioned as a normal user). NEVER enable this in a deployed environment.
 AUTH_DISABLED = os.getenv("ANEXUS_AUTH_DISABLED", "0").strip().lower() in ("1", "true", "yes")
 DEV_USER_EMAIL = os.getenv("ANEXUS_DEV_EMAIL", "dev@localhost").strip().lower()
 
@@ -203,9 +200,8 @@ DEV_USER_EMAIL = os.getenv("ANEXUS_DEV_EMAIL", "dev@localhost").strip().lower()
 # OIDC client config from the [auth] block in secrets.toml).
 AUTH_PROVIDER_NAME = os.getenv("ANEXUS_AUTH_PROVIDER_NAME", "Google").strip()
 
-ROLE_ADMIN = "admin"
+# Any authenticated OIDC identity is auto-provisioned as a normal user.
 ROLE_USER = "user"
-VALID_ROLES = (ROLE_ADMIN, ROLE_USER)
 
 STATUS_ACTIVE = "active"
 STATUS_DISABLED = "disabled"
