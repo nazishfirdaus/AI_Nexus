@@ -35,10 +35,10 @@ def extract_claims(user) -> dict:
 
 
 def resolve_user(user_store, user) -> Optional[dict]:
-    """Return the provisioned account for `user`, or None if not allowed.
+    """Return the account for `user`, provisioning one on first login.
 
-    None covers three cases the caller treats identically: not logged in, an
-    unknown email that no admin provisioned, and a disabled account.
+    None covers two cases the caller treats identically: not logged in, and a
+    disabled account.
     """
     claims = extract_claims(user)
     if not claims["is_logged_in"]:

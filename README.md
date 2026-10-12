@@ -43,10 +43,11 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 - **Login** uses Streamlit's native OIDC auth (`st.login` / `st.user`). Copy
   `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` (gitignored) and
   fill in an `[auth]` block (OAuth client id/secret, `cookie_secret`,
-  `server_metadata_url`) plus `ANEXUS_SECRET_KEY` and `ANEXUS_BOOTSTRAP_ADMIN_EMAIL`.
-- **Provisioning is admin-driven.** The first login from `ANEXUS_BOOTSTRAP_ADMIN_EMAIL`
-  becomes an admin; an admin provisions everyone else (and can enable/disable
-  accounts or change roles) on the **Admin** page. Unknown emails are denied.
+  `server_metadata_url`) plus `ANEXUS_SECRET_KEY`.
+- **Provisioning is automatic.** Any identity that authenticates via OIDC is
+  auto-provisioned as a normal user on first login and immediately gets its own
+  isolated area. There are no roles or admin page. Accounts start active; an
+  account can still be disabled in the registry if you need to revoke access.
 - **Bring your own keys (BYOK).** Each user stores their own LLM provider keys and
   S3 credentials on the **Settings** page. They are encrypted at rest (Fernet) and
   never displayed again. A user's keys take precedence over any deployment-wide
