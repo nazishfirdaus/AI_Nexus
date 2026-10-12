@@ -26,10 +26,10 @@ from config.settings import MAX_PDF_PAGES, MIN_TEXT_LENGTH_FOR_OCR, OCR_DPI
 
 from . import ocr
 from .common import (
+    clean_page_text,
     has_sufficient_text,
     looks_like_gibberish,
     make_document,
-    normalize_text,
     render_table_lines,
     strip_markdown_artifacts,
     validate_file,
@@ -83,6 +83,29 @@ def _should_strip_markdown(extractor: str) -> bool:
     if mode == "false":
         return False
     return extractor == "pymupdf4llm"
+
+
+def _embedded_metadata(pdf: pymupdf.Document) -> dict:
+    """Document-property metadata (title/author/created) for page annotations."""
+
+    if not settings.EXTRACT_EMBEDDED_METADATA:
+        return {}
+    try:
+        info = pdf.metadata or {}
+    except Exception:
+        return {}
+    meta: dict = {}
+    if info.get("title"):
+        meta["doc_title"] = str(info["title"]).strip()
+    if info.get("author"):
+        meta["doc_author"] = str(info["author"]).strip()
+    if info.get("creationDate"):
+        meta["doc_created"] = str(info["creationDate"]).strip()
+    if info.get("subject"):
+        meta["doc_subject"] = str(info["subject"]).strip()
+    if info.get("keywords"):
+        meta["doc_keywords"] = str(info["keywords"]).strip()
+    return meta
 
 
 def _looks_tabular(text: str) -> bool:
@@ -213,6 +236,7 @@ def parse_pdf(
     documents: list[Document] = []
     md_cache = {"loaded": False, "pages": None}
     tables_cache: dict = {"loaded": False, "pdf": None}
+    doc_meta = _embedded_metadata(pdf)
 
     try:
         if len(pdf) == 0:
@@ -258,13 +282,16 @@ def parse_pdf(
             if chosen_engine is not None:
                 if _should_strip_markdown(chosen_engine):
                     chosen_text = strip_markdown_artifacts(chosen_text)
+                cleaned, stats = clean_page_text(chosen_text)
                 documents.append(
                     make_document(
-                        normalize_text(chosen_text),
+                        cleaned,
                         filename=filename,
                         page_number=page_number,
                         ocr_used=False,
                         extractor=chosen_engine,
+                        **stats,
+                        **doc_meta,
                     )
                 )
                 continue
@@ -273,14 +300,17 @@ def parse_pdf(
                 render_page_to_image(page, dpi=ocr_dpi),
                 engine=ocr_engine,
             )
+            cleaned, stats = clean_page_text(ocr_text)
             documents.append(
                 make_document(
-                    normalize_text(ocr_text),
+                    cleaned,
                     filename=filename,
                     page_number=page_number,
                     ocr_used=True,
                     extractor="ocr",
                     ocr_engine=ocr_used_engine,
+                    **stats,
+                    **doc_meta,
                 )
             )
 

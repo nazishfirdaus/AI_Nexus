@@ -231,6 +231,88 @@ def test_parse_pptx_no_text_raises(tmp_path):
         parse_document(path)
 
 
+# ------------------------------------------------------- embedded metadata
+def test_parse_docx_extracts_core_properties(tmp_path):
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    doc.core_properties.title = "Loan Agreement"
+    doc.core_properties.author = "ANexus"
+    doc.add_paragraph("The interest rate is 7.25 percent per annum.")
+    path = tmp_path / "meta.docx"
+    doc.save(str(path))
+
+    documents = parse_document(path)
+
+    assert documents[0].metadata["doc_title"] == "Loan Agreement"
+    assert documents[0].metadata["doc_author"] == "ANexus"
+
+
+def test_parse_xlsx_extracts_workbook_properties(tmp_path):
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    workbook.properties.title = "EMI Schedule"
+    workbook.properties.creator = "ANexus"
+    sheet = workbook.active
+    sheet.append(["Borrower", "EMI"])
+    sheet.append(["Rahul", "3500"])
+    path = tmp_path / "meta.xlsx"
+    workbook.save(str(path))
+
+    documents = parse_document(path)
+
+    assert documents[0].metadata["doc_title"] == "EMI Schedule"
+    assert documents[0].metadata["doc_author"] == "ANexus"
+
+
+def test_parse_pptx_extracts_core_properties(tmp_path):
+    from pptx import Presentation
+
+    presentation = Presentation()
+    presentation.core_properties.title = "Product Deck"
+    presentation.core_properties.author = "ANexus"
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Overview"
+    slide.placeholders[1].text = "Fixed rate 7.25 percent"
+    path = tmp_path / "meta.pptx"
+    presentation.save(str(path))
+
+    documents = parse_document(path)
+
+    assert documents[0].metadata["doc_title"] == "Product Deck"
+    assert documents[0].metadata["doc_author"] == "ANexus"
+
+
+def test_parse_pdf_extracts_document_properties(tmp_path):
+    import pymupdf
+
+    from src.ingestion.parsers.pdf import parse_pdf
+
+    path = tmp_path / "meta.pdf"
+    doc = pymupdf.open()
+    doc.set_metadata({"title": "Mortgage File", "author": "ANexus"})
+    page = doc.new_page()
+    page.insert_text((72, 72), "Interest rate is 7.25 percent per annum.")
+    doc.save(str(path))
+    doc.close()
+
+    documents = parse_pdf(path)
+
+    assert documents[0].metadata["doc_title"] == "Mortgage File"
+    assert documents[0].metadata["doc_author"] == "ANexus"
+
+
+def test_page_metadata_records_cleaning_stats(tmp_path):
+    path = tmp_path / "stats.txt"
+    path.write_text("Loan amount is 4,50,000 rupees.", encoding="utf-8")
+
+    documents = parse_document(path)
+
+    assert documents[0].metadata["raw_chars"] >= documents[0].metadata["clean_chars"]
+    assert documents[0].metadata["clean_chars"] > 0
+
+
 # -------------------------------------------------------------------- images
 def _write_scan(tmp_path):
     from PIL import Image, ImageDraw

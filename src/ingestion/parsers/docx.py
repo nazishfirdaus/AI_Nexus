@@ -10,9 +10,15 @@ from pathlib import Path
 
 from langchain_core.documents import Document
 
+from config import settings
 from config.settings import TEXT_PAGE_TARGET_CHARS
 
-from .common import make_document, normalize_text, render_table_lines, validate_file
+from .common import (
+    clean_page_text,
+    make_document,
+    render_table_lines,
+    validate_file,
+)
 
 ALLOWED_EXTENSIONS = (".docx",)
 
@@ -37,33 +43,58 @@ def _table_rows(table) -> list[list[str]]:
     return rows
 
 
+def _embedded_metadata(document) -> dict:
+    """Core-property metadata (title/author/created/keywords) if present."""
+
+    if not settings.EXTRACT_EMBEDDED_METADATA:
+        return {}
+    try:
+        props = document.core_properties
+    except Exception:
+        return {}
+    meta: dict = {}
+    if props.title:
+        meta["doc_title"] = str(props.title).strip()
+    if props.author:
+        meta["doc_author"] = str(props.author).strip()
+    if props.created:
+        meta["doc_created"] = props.created.isoformat()
+    if props.modified:
+        meta["doc_modified"] = props.modified.isoformat()
+    if props.keywords:
+        meta["doc_keywords"] = str(props.keywords).strip()
+    return meta
+
+
 def _group_blocks(
-    blocks: list[tuple[bool, str]],
+    blocks: list[tuple[bool, str, int, int]],
     target_chars: int,
-) -> list[str]:
-    """Pack (is_heading, text) blocks into pseudo-pages.
+) -> list[tuple[str, int, int]]:
+    """Pack ``(is_heading, text, raw_chars, clean_chars)`` blocks into pages.
 
     A heading always opens a new page; otherwise pages fill to about
-    ``target_chars``.
+    ``target_chars``. Cleaning stats are summed per page.
     """
 
-    pages: list[str] = []
+    pages: list[tuple[str, int, int]] = []
     buffer: list[str] = []
-    size = 0
+    size = raw = clean = 0
 
     def flush() -> None:
-        nonlocal buffer, size
+        nonlocal buffer, size, raw, clean
         if buffer:
-            pages.append("\n\n".join(buffer))
-        buffer, size = [], 0
+            pages.append(("\n\n".join(buffer), raw, clean))
+        buffer, size, raw, clean = [], 0, 0, 0
 
-    for is_heading, text in blocks:
+    for is_heading, text, raw_chars, clean_chars in blocks:
         if is_heading and buffer:
             flush()
         if buffer and size + len(text) > target_chars:
             flush()
         buffer.append(text)
         size += len(text) + 2
+        raw += raw_chars
+        clean += clean_chars
         if size >= target_chars:
             flush()
 
@@ -84,21 +115,30 @@ def parse_docx(
     from docx.text.paragraph import Paragraph
 
     document = DocxDocument(str(path))
+    doc_meta = _embedded_metadata(document)
 
-    blocks: list[tuple[bool, str]] = []
+    blocks: list[tuple[bool, str, int, int]] = []
 
     for child in document.element.body.iterchildren():
         if child.tag.endswith("}p"):
             paragraph = Paragraph(child, document)
-            text = normalize_text(paragraph.text)
+            text, stats = clean_page_text(paragraph.text)
             if not text:
                 continue
-            blocks.append((_is_heading(_paragraph_style_name(paragraph)), text))
+            blocks.append(
+                (
+                    _is_heading(_paragraph_style_name(paragraph)),
+                    text,
+                    stats["raw_chars"],
+                    stats["clean_chars"],
+                )
+            )
 
         elif child.tag.endswith("}tbl"):
             table = Table(child, document)
             for line in render_table_lines(_table_rows(table)):
-                blocks.append((False, line))
+                length = len(line)
+                blocks.append((False, line, length, length))
 
     pages = _group_blocks(blocks, target_chars=target_chars)
 
@@ -107,6 +147,11 @@ def parse_docx(
             page_text,
             filename=path.name,
             page_number=page_number,
+            raw_chars=raw_chars,
+            clean_chars=clean_chars,
+            **doc_meta,
         )
-        for page_number, page_text in enumerate(pages, start=1)
+        for page_number, (page_text, raw_chars, clean_chars) in enumerate(
+            pages, start=1
+        )
     ]

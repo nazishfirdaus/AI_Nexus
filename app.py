@@ -432,12 +432,24 @@ def ingest_documents(items: list[tuple[bytes, str]]) -> None:
         total_chunks = sum(r.chunks for r in results)
         total_vectors = sum(r.vectors_added for r in results)
         total_ocr = sum(r.pages_ocr for r in results)
+        total_boilerplate = sum(r.boilerplate_lines_removed for r in results)
+        total_short = sum(r.chunks_dropped_short for r in results)
+        total_overcleaned = sum(r.pages_overcleaned for r in results)
+        details = []
+        if total_ocr:
+            details.append(f"{total_ocr} OCR page(s)")
+        if total_boilerplate:
+            details.append(f"{total_boilerplate} boilerplate line(s) removed")
+        if total_short:
+            details.append(f"{total_short} short chunk(s) dropped")
+        if total_overcleaned:
+            details.append(f"{total_overcleaned} page(s) heavily cleaned")
+        suffix = f" ({', '.join(details)})" if details else ""
         _add_message(
             "assistant",
             f"Successfully ingested {len(results)} document(s): {names} — "
-            f"{total_pages} page(s), {total_chunks} chunks, {total_vectors} vectors "
-            f"({total_ocr} OCR page(s)). You can now ask questions across all "
-            "uploaded documents.",
+            f"{total_pages} page(s), {total_chunks} chunks, {total_vectors} vectors{suffix}. "
+            "You can now ask questions across all uploaded documents.",
         )
     if errors and not results:
         st.session_state["doc_state"] = "error"

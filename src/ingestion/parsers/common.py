@@ -6,13 +6,20 @@ chunker, aggregator, scrubber and UI stay format-agnostic.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 from langchain_core.documents import Document
 
 from config.settings import (
+    BOILERPLATE_MIN_LINE_CHARS,
+    BOILERPLATE_MIN_PAGE_FRACTION,
+    BOILERPLATE_MIN_PAGES,
+    MIN_CHUNK_CHARS,
+    MIN_PAGE_CONTENT_RATIO,
     MIN_TEXT_LENGTH_FOR_OCR,
     NORMALIZE_DEHYPHENATE,
     OCR_GIBBERISH_MIN_ALNUM_RATIO,
@@ -25,6 +32,42 @@ _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # Word split across a line break by a hyphen ("loan ac-\ncount" -> "loan account").
 _DEHYPHEN_RE = re.compile(r"(?<=[A-Za-z])-\n(?=[a-z])")
+
+
+@dataclass
+class CleaningStats:
+    """How much text a cleaning pass removed, for over-cleaning detection."""
+
+    input_chars: int = 0
+    output_chars: int = 0
+
+    @property
+    def removed(self) -> int:
+        return max(0, self.input_chars - self.output_chars)
+
+
+def normalize_text_with_stats(text: str) -> tuple[str, CleaningStats]:
+    """``normalize_text`` plus a record of how much text was removed.
+
+    Callers that only need the cleaned string should keep using
+    ``normalize_text``; parsers use this to attach ``raw_chars``/``clean_chars``
+    to page metadata so the pipeline can flag pages that lost most of their
+    content to cleaning.
+    """
+
+    raw = text or ""
+    cleaned = normalize_text(raw)
+    return cleaned, CleaningStats(input_chars=len(raw), output_chars=len(cleaned))
+
+
+def clean_page_text(text: str) -> tuple[str, dict]:
+    """Clean one page of text and return ``(cleaned, stats_metadata)``.
+
+    The returned dict is ready to splat into ``make_document``.
+    """
+
+    cleaned, stats = normalize_text_with_stats(text)
+    return cleaned, {"raw_chars": stats.input_chars, "clean_chars": stats.output_chars}
 
 
 def normalize_text(text: str) -> str:
@@ -158,6 +201,96 @@ def has_sufficient_text(
     normalized_text = normalize_text(text)
 
     return len(normalized_text) >= min_text_length
+
+
+# Values that must survive boilerplate removal: money amounts and anything that
+# looks like a labelled field ("Loan A/c No: ...") are never treated as noise,
+# even if identical on every page.
+_AMOUNT_RE = re.compile(r"(?:₹|Rs\.?|INR|\$|€|£)\s?\d|\b\d[\d,]*\.\d{1,2}\b")
+_LABELLED_FIELD_RE = re.compile(r"[:|]")
+
+
+def _is_protected_line(line: str) -> bool:
+    """True if ``line`` carries a value we must not drop as boilerplate."""
+
+    return bool(_AMOUNT_RE.search(line) or _LABELLED_FIELD_RE.search(line))
+
+
+def drop_repeated_boilerplate(
+    pages: list[Document],
+    *,
+    min_pages: int = BOILERPLATE_MIN_PAGES,
+    min_page_fraction: float = BOILERPLATE_MIN_PAGE_FRACTION,
+    min_line_chars: int = BOILERPLATE_MIN_LINE_CHARS,
+) -> tuple[list[Document], int]:
+    """Drop lines repeated across most pages of a multi-page document.
+
+    Catches running headers/footers, page stamps and other boilerplate that
+    survives extraction. Deliberately conservative:
+
+    * does nothing on documents shorter than ``min_pages``;
+    * a line must appear on at least ``min_page_fraction`` of pages *and* be at
+      least ``min_line_chars`` long;
+    * lines carrying money amounts or labelled fields are always protected;
+    * a page is left untouched if removing its boilerplate would leave almost
+      nothing behind.
+
+    Returns ``(pages, removed_line_count)``. Page text is rebuilt from the
+    already per-line-stripped normalization, so formatting is unchanged.
+    """
+
+    if len(pages) < min_pages:
+        return pages, 0
+
+    total = len(pages)
+    counts: dict[str, int] = {}
+    lines_per_page: list[list[str]] = []
+
+    for page in pages:
+        lines = [
+            line
+            for line in (page.page_content or "").split("\n")
+            if line.strip()
+        ]
+        lines_per_page.append(lines)
+        for line in set(lines):
+            key = line.lower()
+            counts[key] = counts.get(key, 0) + 1
+
+    threshold = max(2, math.ceil(total * min_page_fraction))
+    boilerplate = {
+        key
+        for key, count in counts.items()
+        if count >= threshold
+        and len(key) >= min_line_chars
+        and not _is_protected_line(key)
+    }
+
+    if not boilerplate:
+        return pages, 0
+
+    removed_total = 0
+
+    for page, lines in zip(pages, lines_per_page):
+        kept = [line for line in lines if line.lower() not in boilerplate]
+        removed_here = len(lines) - len(kept)
+        if removed_here == 0:
+            continue
+
+        page_len = len("\n".join(lines))
+        kept_len = len("\n".join(kept))
+        # Never clean a page down to (near) nothing: revert that page's removal.
+        floor = max(MIN_CHUNK_CHARS, MIN_PAGE_CONTENT_RATIO * page_len)
+        if kept_len < floor:
+            continue
+
+        page.page_content = "\n".join(kept)
+        meta = dict(page.metadata or {})
+        meta["boilerplate_lines_removed"] = removed_here
+        page.metadata = meta
+        removed_total += removed_here
+
+    return pages, removed_total
 
 
 def validate_file(file_path: str | Path, allowed: tuple[str, ...]) -> Path:
