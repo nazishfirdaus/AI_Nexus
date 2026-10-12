@@ -23,6 +23,7 @@ from src.auth.tenancy import user_db_path
 from src.auth.user_store import UserStore
 from src.memory.chat_store import ChatStore
 from src.pipeline_factory import PipelineBundle, build_user_pipeline
+from src.rag_pipeline import DuplicateDocumentError
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +368,10 @@ def handle_web_import(url: str, max_pages: int) -> None:
         result = bundle.pipeline.ingest_parsed_documents(
             site.documents, filename=site.title, document_id=site.document_id
         )
+    except DuplicateDocumentError as exc:
+        st.session_state["doc_state"] = "ready"
+        st.info(str(exc))
+        return
     except Exception as exc:
         logger.exception("Website ingestion failed")
         st.session_state["doc_state"] = "error"
@@ -389,15 +394,16 @@ def ingest_documents(items: list[tuple[bytes, str]]) -> None:
     """Save each upload to a temp file and append it to the corpus.
 
     `items` is [(bytes, original_filename), ...]. Files already in the registry
-    are skipped by the caller, so everything here is new. One failing document
-    does not abort the rest of the batch. The temp file keeps the original
-    extension so the parser can dispatch on it.
+    (by name or by content hash) are skipped by the caller or reported here, so
+    everything else is new. One failing document does not abort the rest of the
+    batch. The temp file keeps the original extension so the parser can dispatch
+    on it.
     """
     if not items:
         return
     st.session_state["doc_state"] = "processing"
     bundle = _bundle()
-    results, errors = [], []
+    results, errors, duplicates = [], [], []
     for bytes_data, filename in items:
         suffix = Path(filename).suffix.lower()
         tmp = Path(os.environ.get("TEMP", ".")) / f"anexus_upload_{int(time.time())}{suffix}"
@@ -408,6 +414,8 @@ def ingest_documents(items: list[tuple[bytes, str]]) -> None:
             if len(results) == 1:
                 # A fresh batch starts a fresh conversation; older chats stay saved.
                 _start_new_chat()
+        except DuplicateDocumentError as exc:
+            duplicates.append(str(exc))
         except Exception as exc:  # defensively show per-file errors, keep going
             logger.exception("Ingestion failed for %s", filename)
             errors.append((filename, exc))
@@ -423,16 +431,20 @@ def ingest_documents(items: list[tuple[bytes, str]]) -> None:
         total_pages = sum(r.pages for r in results)
         total_chunks = sum(r.chunks for r in results)
         total_vectors = sum(r.vectors_added for r in results)
+        total_ocr = sum(r.pages_ocr for r in results)
         _add_message(
             "assistant",
             f"Successfully ingested {len(results)} document(s): {names} — "
             f"{total_pages} page(s), {total_chunks} chunks, {total_vectors} vectors "
-            "total. You can now ask questions across all uploaded documents.",
+            f"({total_ocr} OCR page(s)). You can now ask questions across all "
+            "uploaded documents.",
         )
     if errors and not results:
         st.session_state["doc_state"] = "error"
     for filename, exc in errors:
         _add_message("assistant", f"⚠️ Could not process '{filename}': {exc}")
+    for message in duplicates:
+        _add_message("assistant", f"ℹ️ {message}")
     _sync_messages()
     if results:
         # Re-render so the sidebar document list reflects the new corpus.

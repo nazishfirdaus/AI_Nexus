@@ -11,6 +11,7 @@ from langchain_core.documents import Document
 
 from config.settings import IMAGE_EXTENSIONS, OCR_DPI
 
+from . import ocr
 from .common import make_document, normalize_text, validate_file
 
 ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS
@@ -19,14 +20,13 @@ ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS
 def parse_image(
     file_path: str | Path,
     dpi: int = OCR_DPI,
+    ocr_engine: str | None = None,
 ) -> list[Document]:
     """OCR an image into a single page-level Document."""
 
     path = validate_file(file_path, ALLOWED_EXTENSIONS)
 
     from PIL import Image, ImageOps
-
-    import pytesseract
 
     with Image.open(path) as opened:
         image = ImageOps.exif_transpose(opened).convert("L")
@@ -38,7 +38,9 @@ def parse_image(
                 Image.LANCZOS,
             )
 
-        extracted_text = pytesseract.image_to_string(image)
+        extracted_text, engine_used = ocr.ocr_image_with_engine(
+            image, engine=ocr_engine
+        )
 
     normalized = normalize_text(extracted_text)
 
@@ -51,5 +53,7 @@ def parse_image(
             filename=path.name,
             page_number=1,
             ocr_used=True,
+            extractor="ocr",
+            ocr_engine=engine_used,
         )
     ]

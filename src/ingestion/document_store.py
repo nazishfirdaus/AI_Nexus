@@ -25,19 +25,27 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
-    id         TEXT PRIMARY KEY,
-    filename   TEXT NOT NULL,
-    pages      INTEGER NOT NULL DEFAULT 0,
-    chunks     INTEGER NOT NULL DEFAULT 0,
-    vectors    INTEGER NOT NULL DEFAULT 0,
-    duration_s REAL NOT NULL DEFAULT 0.0,
-    created_at TEXT NOT NULL
+    id           TEXT PRIMARY KEY,
+    filename     TEXT NOT NULL,
+    pages        INTEGER NOT NULL DEFAULT 0,
+    chunks       INTEGER NOT NULL DEFAULT 0,
+    vectors      INTEGER NOT NULL DEFAULT 0,
+    duration_s   REAL NOT NULL DEFAULT 0.0,
+    content_hash TEXT,
+    created_at   TEXT NOT NULL
 );
 """
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _ensure_column(conn, name: str, decl: str) -> None:
+    """Add a column if a pre-migration database does not have it yet."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(documents)")}
+    if name not in existing:
+        conn.execute(f"ALTER TABLE documents ADD COLUMN {name} {decl}")
 
 
 class DocumentStore:
@@ -65,6 +73,7 @@ class DocumentStore:
                 os.makedirs(directory, exist_ok=True)
         with self._connection() as conn:
             conn.executescript(_SCHEMA)
+            _ensure_column(conn, "content_hash", "TEXT")
 
     @contextmanager
     def _connection(self):
@@ -97,6 +106,7 @@ class DocumentStore:
         chunks: int = 0,
         vectors: int = 0,
         duration_s: float = 0.0,
+        content_hash: Optional[str] = None,
     ) -> dict:
         """Insert (or replace) one document record."""
         record = {
@@ -106,17 +116,19 @@ class DocumentStore:
             "chunks": int(chunks),
             "vectors": int(vectors),
             "duration_s": float(duration_s),
+            "content_hash": content_hash,
             "created_at": _now(),
         }
         with self._lock, self._connection() as conn:
             conn.execute(
                 "INSERT INTO documents "
-                "(id, filename, pages, chunks, vectors, duration_s, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(id, filename, pages, chunks, vectors, duration_s, content_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET "
                 "filename=excluded.filename, pages=excluded.pages, "
                 "chunks=excluded.chunks, vectors=excluded.vectors, "
-                "duration_s=excluded.duration_s, created_at=excluded.created_at",
+                "duration_s=excluded.duration_s, content_hash=excluded.content_hash, "
+                "created_at=excluded.created_at",
                 (
                     record["id"],
                     record["filename"],
@@ -124,6 +136,7 @@ class DocumentStore:
                     record["chunks"],
                     record["vectors"],
                     record["duration_s"],
+                    record["content_hash"],
                     record["created_at"],
                 ),
             )
@@ -141,6 +154,17 @@ class DocumentStore:
         with self._lock, self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM documents WHERE id = ?", (document_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def find_by_content_hash(self, content_hash: str) -> Optional[dict]:
+        """Return the first record whose content hash matches, if any."""
+        if not content_hash:
+            return None
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM documents WHERE content_hash = ?",
+                (content_hash,),
             ).fetchone()
         return dict(row) if row else None
 

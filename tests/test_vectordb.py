@@ -81,6 +81,28 @@ def test_get_all_documents_round_trips(db):
     assert ids == {"d1_p1_c1", "d1_p2_c1", "d1_p3_c1"}
 
 
+def test_large_corpus_batches_add_and_paginates_get(db):
+    """Track A: >1 ADD_BATCH_SIZE additions and > GET_BATCH_SIZE reads (pagination)."""
+    from src.ingestion import vectordb as vdb
+
+    # Build a corpus larger than the chroma batch size (default 512).
+    n = int(vdb.CHROMA_ADD_BATCH_SIZE) + 100
+    docs = [  
+        Document(
+            page_content=f"Chunk {i}.",
+            metadata={"chunk_id": f"bulk_p{i}_c1", "document_id": "bulk", "page_number": i},
+        )
+        for i in range(1, n + 1)
+    ]
+    embeddings = [[float(i % 3) + 1.0, 0.0, 0.0, float(i % 7)] for i in range(n)]
+    assert db.add_chunks(docs, embeddings) == n
+    assert db.count() == n
+
+    all_docs = db.get_all_documents()
+    assert len(all_docs) == n
+    assert {d.metadata["chunk_id"] for d in all_docs} == {d.metadata["chunk_id"] for d in docs}
+
+
 def test_reset_clears_collection(db):
     db.add_chunks(make_docs(), make_embeddings())
     db.reset()
