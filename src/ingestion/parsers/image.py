@@ -12,7 +12,7 @@ from langchain_core.documents import Document
 from config.settings import IMAGE_EXTENSIONS, OCR_DPI
 
 from . import ocr
-from .common import make_document, normalize_text, validate_file
+from .common import clean_page_text, make_document, validate_file
 
 ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS
 
@@ -42,7 +42,7 @@ def parse_image(
             image, engine=ocr_engine
         )
 
-    normalized = normalize_text(extracted_text)
+    normalized, stats = clean_page_text(extracted_text)
 
     if not normalized:
         return []
@@ -55,5 +55,6 @@ def parse_image(
             ocr_used=True,
             extractor="ocr",
             ocr_engine=engine_used,
+            **stats,
         )
     ]

@@ -28,7 +28,10 @@ from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
 from src.ingestion.document_store import DocumentStore
 # parse_document imported lazily in ingest_document to reduce startup cost
-from src.ingestion.parsers.common import normalize_text
+from src.ingestion.parsers.common import (
+    drop_repeated_boilerplate,
+    normalize_text,
+)
 from src.ingestion.vectordb import VectorDB
 from src.memory.history import (
     build_history,
@@ -65,6 +68,23 @@ def _pages_digest(page_documents: Iterable[Document]) -> str:
     )
 
 
+def _page_overcleaned(page: Document) -> bool:
+    """True if cleaning removed most of a page's content.
+
+    Pages that never recorded ``raw_chars`` (e.g. pre-parsed web pages) are not
+    judged, and very short pages are ignored as too small to be meaningful.
+    """
+
+    meta = page.metadata or {}
+    raw = meta.get("raw_chars")
+    clean = meta.get("clean_chars")
+    if not isinstance(raw, int) or not isinstance(clean, int):
+        return False
+    if raw < settings.MIN_TEXT_LENGTH_FOR_OCR:
+        return False
+    return raw > 0 and (clean / raw) < settings.MIN_PAGE_CONTENT_RATIO
+
+
 class DuplicateDocumentError(ValueError):
     """Raised when content already exists under another document name and the
     configured DEDUP_ACTION is "skip". The UI reports it as information, not as an
@@ -82,6 +102,9 @@ class IngestionResult:
     content_hash: Optional[str] = None
     pages_empty_dropped: int = 0
     pages_ocr: int = 0
+    pages_overcleaned: int = 0
+    chunks_dropped_short: int = 0
+    boilerplate_lines_removed: int = 0
 
 
 @dataclass
@@ -218,6 +241,7 @@ class RAGPipeline:
             for p in page_documents
             if (p.metadata or {}).get("ocr_used") is True
         )
+        pages_overcleaned = sum(1 for p in page_documents if _page_overcleaned(p))
 
         content_hash = content_hash or _pages_digest(page_documents)
 
@@ -232,6 +256,15 @@ class RAGPipeline:
                     "(same content) and was not ingested."
                 )
 
+        # Running headers/footers and page stamps repeat on every page; drop them
+        # before chunking so they don't pollute the corpus. Conservative: only
+        # multi-page documents, and never at the cost of a page's real content.
+        boilerplate_removed = 0
+        if settings.BOILERPLATE_REMOVAL in ("auto", "true", "on", "1"):
+            page_documents, boilerplate_removed = drop_repeated_boilerplate(
+                page_documents
+            )
+
         chunks = self.chunker.split(page_documents)
         if not chunks:
             raise ValueError(f"No usable chunks were produced from {filename}")
@@ -239,6 +272,12 @@ class RAGPipeline:
         # Drop exact-duplicate chunks within this batch (keep the first) so
         # repeated boilerplate never bloats the vector store.
         chunks, dup_dropped = self._dedup_chunks(chunks)
+
+        # Over-cleaning safeguard: noise-only chunks (and sub-floor chunks when
+        # opted in) are dropped and reported, rather than silently embedded.
+        chunks, short_dropped = self._drop_short_chunks(chunks)
+        if not chunks:
+            raise ValueError(f"No usable chunks were produced from {filename}")
 
         vectors = self.embedder.embed_documents(chunks)
         if len(vectors) != len(chunks):
@@ -282,13 +321,23 @@ class RAGPipeline:
         )
         logger.info(
             "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs "
-            "(+%d chunks dropped as duplicates)",
+            "(+%d duplicate chunk(s) dropped, %d short chunk(s) dropped, "
+            "%d boilerplate line(s) removed)",
             filename,
             len(page_documents),
             len(chunks),
             duration,
             dup_dropped,
+            short_dropped,
+            boilerplate_removed,
         )
+        if pages_overcleaned:
+            logger.warning(
+                "%d page(s) of %s lost most of their text to cleaning "
+                "(check extraction quality / cleaning settings)",
+                pages_overcleaned,
+                filename,
+            )
         return IngestionResult(
             pages=len(page_documents),
             chunks=len(chunks),
@@ -299,6 +348,9 @@ class RAGPipeline:
             content_hash=content_hash,
             pages_empty_dropped=pages_empty_dropped,
             pages_ocr=pages_ocr,
+            pages_overcleaned=pages_overcleaned,
+            chunks_dropped_short=short_dropped,
+            boilerplate_lines_removed=boilerplate_removed,
         )
 
     @staticmethod
@@ -315,6 +367,27 @@ class RAGPipeline:
             if key in seen:
                 continue
             seen.add(key)
+            kept.append(chunk)
+        return kept, len(chunks) - len(kept)
+
+    @staticmethod
+    def _drop_short_chunks(chunks: list[Document]) -> tuple[list[Document], int]:
+        """Drop noise-only chunks, plus sub-floor chunks when opted in.
+
+        A chunk with no alphanumeric character (``...``, bullets, whitespace) can
+        never match a query, so it is always dropped. The length floor
+        (``MIN_CHUNK_CHARS``) is disabled by default because chunker tail
+        fragments can be legitimately short; set it to opt in.
+        """
+
+        floor = settings.MIN_CHUNK_CHARS
+        kept: list[Document] = []
+        for chunk in chunks:
+            text = (chunk.page_content or "").strip()
+            if not any(ch.isalnum() for ch in text):
+                continue
+            if floor > 0 and len(text) < floor:
+                continue
             kept.append(chunk)
         return kept, len(chunks) - len(kept)
 

@@ -49,6 +49,43 @@ PDF_TABLE_EXTRACTION = (
 # "replace" removes the existing document first and re-adds it under the new name.
 DEDUP_ACTION = os.getenv("ANEXUS_DEDUP_ACTION", "skip").strip().lower()
 
+# ---- Over-cleaning safeguards ----------------------------------------------
+# "conservative" (default) never drops content on its own; it only *flags* pages
+# where cleaning removed a large share of the raw text. Aggressive profiles are
+# reserved for a future opt-in and behave the same today.
+CLEANING_PROFILE = os.getenv("ANEXUS_CLEANING_PROFILE", "conservative").strip().lower()
+# A page whose normalized length falls below this fraction of its raw length is
+# counted as "over-cleaned" (reported, never dropped - important text may be dense).
+MIN_PAGE_CONTENT_RATIO = float(os.getenv("ANEXUS_MIN_PAGE_CONTENT_RATIO", "0.15"))
+# Chunks shorter than this are dropped at ingest as too small to retrieve. The
+# default is 0 (disabled): chunker tail fragments can be legitimately short, so
+# dropping them by default would lose real content. Set a positive value to opt
+# in. Regardless of this setting, chunks that contain no alphanumeric character
+# at all (pure punctuation/whitespace noise) are always dropped.
+MIN_CHUNK_CHARS = int(os.getenv("ANEXUS_MIN_CHUNK_CHARS", "0"))
+
+# ---- Repeated-line / boilerplate removal ------------------------------------
+# "auto" (default) drops lines that repeat across most pages of a multi-page
+# document (running headers/footers/page stamps). "off" disables it entirely.
+BOILERPLATE_REMOVAL = os.getenv("ANEXUS_BOILERPLATE_REMOVAL", "auto").strip().lower()
+# Only documents with at least this many pages are checked (a 1-2 page doc has no
+# meaningful notion of "repeated").
+BOILERPLATE_MIN_PAGES = int(os.getenv("ANEXUS_BOILERPLATE_MIN_PAGES", "3"))
+# A line must appear on at least this fraction of pages to count as boilerplate.
+BOILERPLATE_MIN_PAGE_FRACTION = float(
+    os.getenv("ANEXUS_BOILERPLATE_MIN_PAGE_FRACTION", "0.6")
+)
+# Very short repeated lines (page numbers, "Page 4") are only dropped when they
+# also meet the character threshold; this avoids nuking short section labels.
+BOILERPLATE_MIN_LINE_CHARS = int(os.getenv("ANEXUS_BOILERPLATE_MIN_LINE_CHARS", "12"))
+
+# ---- Embedded metadata ------------------------------------------------------
+# Extract document properties (title/author/created) from PDF/DOCX/XLSX/PPTX and
+# attach them to page metadata. Harmless when absent.
+EXTRACT_EMBEDDED_METADATA = os.getenv(
+    "ANEXUS_EXTRACT_EMBEDDED_METADATA", "1"
+).strip().lower() in ("1", "true", "yes")
+
 # ---- Upload limits / supported formats -------------------------------------
 MAX_UPLOAD_MB = 20            # per-file cap enforced by the UI
 MAX_PDF_PAGES = 100           # hard cap on PDF page count

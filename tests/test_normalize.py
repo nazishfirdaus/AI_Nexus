@@ -9,8 +9,11 @@ from pathlib import Path
 from src.ingestion.parsers import common
 from src.ingestion.parsers import pdf as pdf_mod
 from src.ingestion.parsers.common import (
+    CleaningStats,
+    clean_page_text,
     looks_like_gibberish,
     normalize_text,
+    normalize_text_with_stats,
     strip_markdown_artifacts,
 )
 
@@ -57,6 +60,31 @@ def test_normalize_is_idempotent():
     messy = "  \ufb01nance\u00a0\u200b  ac-\ncount \r\n\r\n\r\n end  "
     once = normalize_text(messy)
     assert normalize_text(once) == once
+
+
+# ------------------------------------------------------- normalize_text_with_stats
+def test_stats_report_removed_characters():
+    cleaned, stats = normalize_text_with_stats("loan\u00adaccount")
+    assert cleaned == "loanaccount"
+    assert isinstance(stats, CleaningStats)
+    assert stats.input_chars == len("loan\u00adaccount")
+    assert stats.output_chars == len("loanaccount")
+    assert stats.removed == 1
+
+
+def test_stats_empty_input():
+    cleaned, stats = normalize_text_with_stats("")
+    assert cleaned == ""
+    assert stats.removed == 0
+
+
+def test_clean_page_text_returns_metadata():
+    cleaned, meta = clean_page_text("  Loan   amount\u00a0due  ")
+    assert cleaned == "Loan amount due"
+    assert meta["raw_chars"] == len("  Loan   amount\u00a0due  ")
+    assert meta["clean_chars"] == len(cleaned)
+    # metadata is ready to splat into make_document
+    assert set(meta) == {"raw_chars", "clean_chars"}
 
 
 # ------------------------------------------------------- strip_markdown_artifacts

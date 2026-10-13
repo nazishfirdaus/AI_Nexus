@@ -9,14 +9,47 @@ from langchain_core.documents import Document
 from config.settings import TEXT_PAGE_TARGET_CHARS
 
 from .common import (
-    group_sections,
+    clean_page_text,
     make_document,
-    normalize_text,
     read_text_bytes,
     validate_file,
 )
 
 ALLOWED_EXTENSIONS = (".txt", ".md")
+
+
+def _group_with_stats(
+    sections: list[tuple[str, int, int]],
+    target_chars: int,
+) -> list[tuple[str, int, int]]:
+    """Greedily pack ``(text, raw_chars, clean_chars)`` sections into pages.
+
+    Mirrors ``common.group_sections`` but carries the cleaning stats through so
+    each pseudo-page reports how much of its source survived cleaning.
+    """
+
+    pages: list[tuple[str, int, int]] = []
+    buffer: list[str] = []
+    size = raw = clean = 0
+
+    def flush() -> None:
+        nonlocal buffer, size, raw, clean
+        if buffer:
+            pages.append(("\n\n".join(buffer), raw, clean))
+        buffer, size, raw, clean = [], 0, 0, 0
+
+    for text, raw_chars, clean_chars in sections:
+        if buffer and size + len(text) > target_chars:
+            flush()
+        buffer.append(text)
+        size += len(text) + 2
+        raw += raw_chars
+        clean += clean_chars
+        if size >= target_chars:
+            flush()
+
+    flush()
+    return pages
 
 
 def parse_text(
@@ -38,22 +71,28 @@ def parse_text(
     raw = read_text_bytes(path.read_bytes())
     raw = raw.replace("\r\n", "\n").replace("\r", "\n")
 
-    sections = [
-        normalized
-        for block in re.split(r"\n{2,}", raw)
-        if (normalized := normalize_text(block))
-    ]
+    sections: list[tuple[str, int, int]] = []
+    for block in re.split(r"\n{2,}", raw):
+        cleaned, stats = clean_page_text(block)
+        if cleaned:
+            sections.append(
+                (cleaned, stats["raw_chars"], stats["clean_chars"])
+            )
 
     if not sections:
         return []
 
-    pages = group_sections(sections, target_chars=target_chars)
+    pages = _group_with_stats(sections, target_chars=target_chars)
 
     return [
         make_document(
             page_text,
             filename=path.name,
             page_number=page_number,
+            raw_chars=raw_chars,
+            clean_chars=clean_chars,
         )
-        for page_number, page_text in enumerate(pages, start=1)
+        for page_number, (page_text, raw_chars, clean_chars) in enumerate(
+            pages, start=1
+        )
     ]

@@ -14,13 +14,13 @@ from pathlib import Path
 
 from langchain_core.documents import Document
 
+from config import settings
 from config.settings import MAX_TABLE_ROWS, TABLE_ROWS_PER_PAGE
 
 from .common import (
     make_document,
-    normalize_text,
-    read_text_bytes,
     render_table_lines,
+    read_text_bytes,
     validate_file,
 )
 
@@ -103,6 +103,27 @@ def _fill_merged_cells(
     return rows
 
 
+def _workbook_metadata(workbook) -> dict:
+    """Workbook property metadata (title/creator/created) if present."""
+
+    if not settings.EXTRACT_EMBEDDED_METADATA:
+        return {}
+    try:
+        props = workbook.properties
+    except Exception:
+        return {}
+    meta: dict = {}
+    if props.title:
+        meta["doc_title"] = str(props.title).strip()
+    if props.creator:
+        meta["doc_author"] = str(props.creator).strip()
+    if props.created:
+        meta["doc_created"] = props.created.isoformat()
+    if props.modified:
+        meta["doc_modified"] = props.modified.isoformat()
+    return meta
+
+
 def _rows_to_documents(
     rows: list[list[str]],
     *,
@@ -110,6 +131,7 @@ def _rows_to_documents(
     rows_per_page: int = TABLE_ROWS_PER_PAGE,
     sheet: str | None = None,
     page_start: int = 1,
+    doc_meta: dict | None = None,
 ) -> list[Document]:
     lines = render_table_lines(rows)
     if not lines:
@@ -125,11 +147,14 @@ def _rows_to_documents(
     ]
 
     extra = {"sheet": sheet} if sheet else {}
+    extra.update(doc_meta or {})
     return [
         make_document(
             page_text,
             filename=filename,
             page_number=page_number,
+            raw_chars=len(page_text),
+            clean_chars=len(page_text),
             **extra,
         )
         for page_number, page_text in enumerate(pages, start=page_start)
@@ -163,6 +188,7 @@ def parse_xlsx(
     from openpyxl import load_workbook
 
     workbook = load_workbook(str(path), read_only=True, data_only=True)
+    doc_meta = _workbook_metadata(workbook)
 
     try:
         documents: list[Document] = []
@@ -182,6 +208,7 @@ def parse_xlsx(
                 rows_per_page=rows_per_page,
                 sheet=sheet.title,
                 page_start=page_start,
+                doc_meta=doc_meta,
             )
             documents.extend(sheet_documents)
             page_start += len(sheet_documents)

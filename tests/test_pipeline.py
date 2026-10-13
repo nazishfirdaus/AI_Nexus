@@ -613,6 +613,91 @@ def test_ingest_parsed_documents_groups_pages_under_one_id(pipeline):
     assert len(pipeline.list_documents()) == 1
 
 
+def test_noise_only_chunks_are_dropped_and_reported(pipeline):
+    from langchain_core.documents import Document
+
+    pages = [
+        Document(
+            page_content="The interest rate is 7.25 percent per annum on this loan.",
+            metadata={"page_number": 1},
+        ),
+        # No alphanumeric content: can never match a query, always dropped.
+        Document(page_content="... --- ...", metadata={"page_number": 2}),
+    ]
+    result = pipeline.ingest_parsed_documents(
+        pages, filename="noise.pdf", document_id="noise.pdf"
+    )
+    assert result.chunks_dropped_short == 1
+    assert all(
+        any(ch.isalnum() for ch in d.page_content)
+        for d in pipeline.vector_db.get_all_documents()
+    )
+
+
+def test_short_chunk_floor_is_opt_in(pipeline, monkeypatch):
+    from config import settings
+    from langchain_core.documents import Document
+
+    monkeypatch.setattr(settings, "MIN_CHUNK_CHARS", 20)
+    pages = [
+        Document(
+            page_content="The interest rate is 7.25 percent per annum on this loan.",
+            metadata={"page_number": 1},
+        ),
+        Document(page_content="Short.", metadata={"page_number": 2}),
+    ]
+    result = pipeline.ingest_parsed_documents(
+        pages, filename="short.pdf", document_id="short.pdf"
+    )
+    assert result.chunks_dropped_short >= 1
+
+
+def test_boilerplate_lines_are_removed_and_reported(pipeline):
+    from langchain_core.documents import Document
+
+    header = "ANexus Mortgage Ltd - Confidential"
+    pages = [
+        Document(
+            page_content=f"{header}\nInterest rate is 7.25 percent per annum.",
+            metadata={"page_number": 1},
+        ),
+        Document(
+            page_content=f"{header}\nRepayment tenure is twenty years total.",
+            metadata={"page_number": 2},
+        ),
+        Document(
+            page_content=f"{header}\nPrepayment penalty is two percent only.",
+            metadata={"page_number": 3},
+        ),
+    ]
+    result = pipeline.ingest_parsed_documents(
+        pages, filename="boiler.pdf", document_id="boiler.pdf"
+    )
+    assert result.boilerplate_lines_removed == 3
+    assert header not in "\n".join(
+        d.page_content for d in pipeline.vector_db.get_all_documents()
+    )
+
+
+def test_overcleaned_pages_are_reported(pipeline):
+    from langchain_core.documents import Document
+
+    pages = [
+        Document(
+            page_content="This page kept almost none of its original text.",
+            metadata={"page_number": 1, "raw_chars": 1000, "clean_chars": 50},
+        ),
+        Document(
+            page_content="This page kept most of its original text intact.",
+            metadata={"page_number": 2, "raw_chars": 1000, "clean_chars": 900},
+        ),
+    ]
+    result = pipeline.ingest_parsed_documents(
+        pages, filename="cleaned.pdf", document_id="cleaned.pdf"
+    )
+    assert result.pages_overcleaned == 1
+
+
 def test_reingesting_same_document_replaces_instead_of_duplicating(pipeline, pdf_path):
     first = pipeline.ingest_document(pdf_path)
     second = pipeline.ingest_document(pdf_path)

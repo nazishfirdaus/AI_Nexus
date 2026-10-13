@@ -139,6 +139,33 @@ Two optional guards improve extraction quality without adding dependencies:
   as noise and retried with the next engine (pymupdf4llm) or OCR, instead of being
   accepted as text. Tune with `ANEXUS_OCR_GIBBERISH_MIN_ALNUM_RATIO` (default `0.5`).
 
+### Repeated-line / boilerplate removal
+
+Running headers, footers and page stamps survive extraction and would otherwise be
+chunked into every page. On ingest, lines that repeat across most pages of a
+multi-page document are dropped (default `ANEXUS_BOILERPLATE_REMOVAL=auto`). It is
+deliberately conservative:
+
+- only documents with at least `ANEXUS_BOILERPLATE_MIN_PAGES` pages (default 3) are checked;
+- a line must appear on at least `ANEXUS_BOILERPLATE_MIN_PAGE_FRACTION` of pages
+  (default 0.6) *and* be at least `ANEXUS_BOILERPLATE_MIN_LINE_CHARS` long (default 12);
+- lines carrying money amounts or labelled fields (`Loan A/c No: …`) are never dropped;
+- a page is left untouched when removing its boilerplate would leave almost nothing.
+
+### Over-cleaning safeguards
+
+Cleaning must never quietly destroy real content, so the pipeline records how much
+each page lost and reports it rather than silently discarding:
+
+- **Per-page stats** — every page carries `raw_chars`/`clean_chars`; a page that
+  keeps less than `ANEXUS_MIN_PAGE_CONTENT_RATIO` (default 0.15) of its source is
+  counted as *over-cleaned* and logged. Nothing is dropped for this reason.
+- **Noise-only chunks** — a chunk with no alphanumeric character (`...`, bullets,
+  whitespace) can never match a query and is always dropped.
+- **Optional short-chunk floor** — `ANEXUS_MIN_CHUNK_CHARS` (default `0`, disabled)
+  drops chunks below a length. It is off by default because chunker tail fragments
+  can be legitimately short; raise it to opt in.
+
 ## Scale, multilingual search & dedup
 
 Tunings that matter most once the corpus grows past a few hundred documents:
@@ -164,8 +191,16 @@ Tunings that matter most once the corpus grows past a few hundred documents:
   error) or removes the earlier document and takes the new name (`replace`).
 - **Duplicate-chunk suppression** — exact-duplicate chunks inside one batch (reuse
   of the same boilerplate on every page) are dropped at ingest time.
-- **Quality stats** — the ingest report shows how many pages had to be OCR'd and
-  how many empty pages were dropped.
+- **Quality stats** — the ingest report shows how many pages had to be OCR'd, how
+  many empty pages were dropped, how many boilerplate lines were removed, how many
+  noise/short chunks were dropped, and how many pages were heavily cleaned.
+
+### Embedded metadata
+
+When available, document properties are attached to every page's metadata:
+`doc_title`, `doc_author`, `doc_created` (and `doc_modified`/`doc_keywords`/`doc_subject`
+where present) are read from PDF info dictionaries and DOCX/XLSX/PPTX core
+properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 
 ## Features
 

@@ -344,6 +344,9 @@ def test_dedup_reports_quality_stats(pipeline_like):
     assert result.pages_empty_dropped == 2
     assert result.pages_ocr == 1
     assert result.content_hash
+    assert result.pages_overcleaned == 0
+    assert result.chunks_dropped_short == 0
+    assert result.boilerplate_lines_removed == 0
 
 
 def test_duplicate_chunks_within_batch_are_dropped(pipeline_like):
