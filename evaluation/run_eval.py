@@ -14,6 +14,12 @@ Usage:
     python -m evaluation.run_eval --file "Synthetic_Mortgage_Loan_File_TEST.pdf" \
         [--k 5] [--out results.json] [--simulate]
 
+``--file`` may be repeated to ingest several documents into one corpus. When
+more than one file is supplied, a golden item's optional ``source_file`` field
+scopes its expected pages to that document; hits are matched by
+``(document_id, page_number)`` so equal page numbers in different documents do
+not inflate recall.
+
 ``--pdf`` is kept as a deprecated alias of ``--file``.
 """
 from __future__ import annotations
@@ -27,7 +33,6 @@ import time
 from pathlib import Path
 
 from config import settings
-from src.ingestion.parsers import parse_document
 from src.pipeline_factory import build_pipeline, reset_pipeline_cache
 from src.redaction.presidio_scrubber import scrub_chunks
 from src.retrieval.reranker import RankedChunk
@@ -66,9 +71,11 @@ def main() -> None:
     parser.add_argument(
         "--file",
         "--pdf",
-        dest="file",
+        dest="files",
+        action="append",
         required=True,
-        help="Path to the source document to ingest (any supported format)",
+        help="Path to a source document to ingest (any supported format). "
+        "Repeat the flag to ingest multiple documents into one corpus.",
     )
     parser.add_argument("--k", type=int, default=settings.TOP_K_RERANK, help="Top-k for recall/MRR")
     parser.add_argument("--out", default="evaluation/results.json", help="JSON output path")
@@ -84,23 +91,33 @@ def main() -> None:
     if not dataset_path.exists():
         raise SystemExit("evaluation/golden_dataset.json not found")
     dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
-    file_path = Path(args.file)
-    if not file_path.exists():
-        raise SystemExit(f"File not found: {file_path}")
+    files = [Path(f) for f in args.files]
+    for file_path in files:
+        if not file_path.exists():
+            raise SystemExit(f"File not found: {file_path}")
 
     # One fresh pipeline per run; no cross-run Chroma pollution. Ingestion is
-    # append-mode now, so the corpus is cleared explicitly before the eval file.
+    # append-mode now, so the corpus is cleared explicitly before the eval files.
     reset_pipeline_cache()
     bundle = build_pipeline()
     pipeline = bundle.pipeline
     pipeline.reset()
 
-    ingest_start = time.perf_counter()
-    ing = pipeline.ingest_document(file_path)
-    ingest_s = time.perf_counter() - ingest_start
-    print(f"[eval] ingested {ing.filename}: {ing.pages} pages, {ing.chunks} chunks in {ingest_s:.1f}s")
+    ingest_s = 0.0
+    ingested = []
+    for file_path in files:
+        item_start = time.perf_counter()
+        ing = pipeline.ingest_document(file_path)
+        ingest_s += time.perf_counter() - item_start
+        ingested.append(ing)
+        print(
+            f"[eval] ingested {ing.filename}: {ing.pages} pages, {ing.chunks} chunks "
+            f"(mean {ing.chunks_mean_chars:.0f} chars, max {ing.chunks_max_chars}) "
+            f"in {ing.duration_s:.1f}s"
+        )
 
-    pages = parse_document(file_path)
+    total_chunks = sum(i.chunks for i in ingested)
+    single_document_id = ingested[0].document_id if len(ingested) == 1 else None
 
     rows = []
     retrieval_latencies, e2e_latencies = [], []
@@ -119,25 +136,42 @@ def main() -> None:
         # --- retrieval quality (independent of the LLM answer) ---
         retrieved: list[RankedChunk] = bundle.retriever.hybrid_retrieve(item["question"])
         reranked = bundle.reranker.rerank(item["question"], retrieved, top_k=args.k)
-        hit_page_set = set()
-        hits = []
         expected_pages = set(item.get("source_pages", []))
+        # A golden item may name the document it targets; otherwise a single-file
+        # run implicitly scopes every item to that one document.
+        expected_doc = item.get("source_file") or single_document_id
+        hit_ref_set = set()
+        hits = []
         for rank, chunk in enumerate(reranked, start=1):
-            page = chunk.metadata.get("page_number")
+            meta = chunk.metadata or {}
+            page = meta.get("page_number")
             if page is None:
                 continue
-            if page in hit_page_set:
+            doc = str(meta.get("document_id") or meta.get("filename") or "")
+            if expected_doc is not None and doc and doc != expected_doc:
                 continue
-            hit_page_set.add(page)
+            ref = (doc, int(page))
+            if ref in hit_ref_set:
+                continue
+            hit_ref_set.add(ref)
             if int(page) in expected_pages:
                 hits.append(rank)
         rank_of_first_hit = min(hits) if hits else None
 
         row["recall_at_k"] = 1.0 if rank_of_first_hit is not None else 0.0
         row["mrr_at_k"] = (1.0 / rank_of_first_hit) if rank_of_first_hit else 0.0
-        row["topk_pages"] = sorted({int(c.metadata.get("page_number")) for c in reranked if c.metadata.get("page_number") is not None})
+        row["topk_refs"] = sorted(
+            f"{c.metadata.get('document_id') or c.metadata.get('filename')}#"
+            f"{int(c.metadata['page_number'])}"
+            for c in reranked
+            if c.metadata.get("page_number") is not None
+        )
+        row["topk_pages"] = sorted(
+            {int(c.metadata["page_number"]) for c in reranked if c.metadata.get("page_number") is not None}
+        )
         row["first_hit_rank"] = rank_of_first_hit
         row["expected_pages"] = sorted(expected_pages)
+        row["expected_doc"] = expected_doc
         # Carry context across chunks so a label split from its value is still caught.
         row["source_snippets"] = [
             str(scrubbed)
@@ -166,9 +200,14 @@ def main() -> None:
         rows.append(row)
 
     n = max(1, len(rows))
+    chunk_mean_chars = (
+        sum(i.chunks_mean_chars * i.chunks for i in ingested) / total_chunks
+        if total_chunks else 0.0
+    )
     results = {
         "summary": {
             "items": len(rows),
+            "documents": len(ingested),
             "recall_at_k": round(sum(r["recall_at_k"] for r in rows) / n, 4),
             "mrr_at_k": round(sum(r["mrr_at_k"] for r in rows) / n, 4),
             "topk_empty_rate": round(sum(1 for r in rows if not r["topk_pages"]) / n, 4),
@@ -176,6 +215,9 @@ def main() -> None:
             "pii_leak_rate": round(leaked / n, 4),
             "answered_rate": round(answered / n, 4),
             "ingest_s": round(ingest_s, 2),
+            "chunks_total": total_chunks,
+            "chunk_mean_chars": round(chunk_mean_chars, 1),
+            "chunk_max_chars": max((i.chunks_max_chars for i in ingested), default=0),
             "median_e2e_s": round(statistics.median(e2e_latencies), 3)
             if e2e_latencies else 0,
             "p95_e2e_s": round(
@@ -183,6 +225,19 @@ def main() -> None:
             )
             if len(e2e_latencies) >= 20 else round(max(e2e_latencies or [0]), 3),
         },
+        "documents": [
+            {
+                "filename": i.filename,
+                "document_id": i.document_id,
+                "pages": i.pages,
+                "chunks": i.chunks,
+                "chunk_mean_chars": round(i.chunks_mean_chars, 1),
+                "chunk_median_chars": round(i.chunks_median_chars, 1),
+                "chunk_max_chars": i.chunks_max_chars,
+                "ingest_s": round(i.duration_s, 2),
+            }
+            for i in ingested
+        ],
         "rows": rows,
     }
 

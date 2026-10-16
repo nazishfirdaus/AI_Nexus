@@ -91,10 +91,9 @@ def build_pipeline(
     """
     from src.generation.aggregator import Aggregator
     from src.generation.llm import build_default_handler
-    from src.ingestion.chunker import Chunker
     from src.ingestion.document_store import DocumentStore
     from src.ingestion.vectordb import VectorDB
-    from src.rag_pipeline import RAGPipeline
+    from src.rag_pipeline import RAGPipeline, _build_default_chunker
     from src.redaction.presidio_scrubber import get_scrubber
     from src.retrieval.reranker import CrossEncoderReranker
     from src.retrieval.retriever import HybridRetriever
@@ -116,7 +115,7 @@ def build_pipeline(
         k=10,
         embedding_model=None,
     )
-    chunk = chunker or Chunker()
+    chunk = chunker or _build_default_chunker()
     agg = aggregator or Aggregator(scrubber=scrub)
     store = document_store or DocumentStore(db_path)
     pipeline = RAGPipeline(

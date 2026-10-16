@@ -782,3 +782,133 @@ def test_reingest_reconciles_legacy_stem_id(pipeline, pdf_path):
     ids = {(d.metadata or {}).get("document_id") for d in pipeline.retriever.documents}
     assert ids == {"tiny_loan.pdf"}
     assert [d["id"] for d in pipeline.list_documents()] == ["tiny_loan.pdf"]
+
+
+def test_chunk_char_stats_helper():
+    from langchain_core.documents import Document
+
+    from src.rag_pipeline import _chunk_char_stats
+
+    assert _chunk_char_stats([]) == (0.0, 0.0, 0)
+    chunks = [
+        Document(page_content="a" * 10),
+        Document(page_content="a" * 20),
+        Document(page_content="a" * 30),
+    ]
+    mean, median, max_chars = _chunk_char_stats(chunks)
+    assert mean == 20.0
+    assert median == 20.0
+    assert max_chars == 30
+
+
+def test_ingest_reports_chunk_char_stats(pipeline):
+    from langchain_core.documents import Document
+
+    pages = [
+        Document(
+            page_content="The interest rate is 7.25 percent per annum on this loan.",
+            metadata={"page_number": 1},
+        )
+    ]
+    result = pipeline.ingest_parsed_documents(
+        pages, filename="stats.pdf", document_id="stats.pdf"
+    )
+    assert result.chunks >= 1
+    assert result.chunks_mean_chars > 0
+    assert result.chunks_median_chars > 0
+    assert result.chunks_max_chars >= result.chunks_mean_chars
+
+
+def test_parsers_attach_doc_type(pdf_path):
+    from src.ingestion.parsers import parse_document
+
+    pages = parse_document(pdf_path)
+    assert pages
+    assert {p.metadata.get("doc_type") for p in pages} == {"pdf"}
+
+
+def test_build_default_chunker_char_mode():
+    from config import settings
+    from src.rag_pipeline import _build_default_chunker
+
+    original = settings.CHUNK_TOKEN_AWARE
+    settings.CHUNK_TOKEN_AWARE = False
+    try:
+        chunker = _build_default_chunker()
+    finally:
+        settings.CHUNK_TOKEN_AWARE = original
+    assert chunker.chunk_size == settings.CHUNK_SIZE
+    assert chunker.chunk_overlap == settings.CHUNK_OVERLAP
+
+
+def test_build_default_chunker_token_mode(monkeypatch):
+    from config import settings
+    from src.rag_pipeline import _build_default_chunker
+
+    monkeypatch.setattr(settings, "CHUNK_TOKEN_AWARE", True)
+    chunker = _build_default_chunker()
+    assert chunker.chunk_size == settings.CHUNK_MAX_TOKENS
+    assert chunker.chunk_overlap == settings.CHUNK_OVERLAP_TOKENS
+    assert chunker.target_size == settings.CHUNK_TARGET_TOKENS
+    assert chunker._measure is not len
+
+
+def test_build_default_chunker_sentence_aware(monkeypatch):
+    from config import settings
+    from src.rag_pipeline import _build_default_chunker
+
+    monkeypatch.setattr(settings, "CHUNK_SENTENCE_AWARE", True)
+    assert _build_default_chunker().sentence_aware is True
+    monkeypatch.setattr(settings, "CHUNK_SENTENCE_AWARE", False)
+    assert _build_default_chunker().sentence_aware is False
+
+
+def test_context_prefix_uses_title_then_filename():
+    from langchain_core.documents import Document
+
+    from src.rag_pipeline import _context_prefix
+
+    titled = Document(
+        page_content="x",
+        metadata={"doc_title": "Loan Agreement", "filename": "loan.pdf", "page_number": 3},
+    )
+    assert _context_prefix(titled) == "Loan Agreement · page 3"
+
+    untitled = Document(
+        page_content="x", metadata={"filename": "loan.pdf", "page_number": 2}
+    )
+    assert _context_prefix(untitled) == "loan · page 2"
+
+
+def test_context_header_embeds_header_but_stores_clean_text(monkeypatch):
+    from config import settings
+    from langchain_core.documents import Document
+
+    captured = {}
+
+    class Embedder:
+        def embed_texts(self, texts, batch_size=8):
+            captured["texts"] = list(texts)
+            return [[0.1, 0.2, 0.3, 0.4] for _ in texts]
+
+        def embed_documents(self, documents, batch_size=8):
+            captured["docs"] = list(documents)
+            return [[0.1, 0.2, 0.3, 0.4] for _ in documents]
+
+    monkeypatch.setattr(settings, "CHUNK_CONTEXT_HEADER", "meta")
+    pipe = build(embedder=Embedder())
+    pages = [
+        Document(
+            page_content="The interest rate is 7.25 percent per annum on this loan.",
+            metadata={"page_number": 1, "doc_title": "Loan Agreement", "filename": "loan.pdf"},
+        )
+    ]
+    pipe.ingest_parsed_documents(pages, filename="loan.pdf", document_id="loan.pdf")
+
+    # Embedded text carries the header...
+    assert captured["texts"]
+    assert all(t.startswith("Loan Agreement · page 1\n") for t in captured["texts"])
+    # ...but the stored chunk text and the citation snippet do not.
+    for stored in pipe.vector_db.get_all_documents():
+        assert not stored.page_content.startswith("Loan Agreement · page")
+        assert stored.metadata["context_prefix"] == "Loan Agreement · page 1"

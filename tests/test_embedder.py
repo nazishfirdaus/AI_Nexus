@@ -8,7 +8,9 @@ from langchain_core.documents import Document
 from src.ingestion.embedder import (
     embed_documents,
     embed_query,
+    embed_texts,
     get_embedding_model,
+    token_length,
     EMBEDDING_MODEL_NAME,
     QUERY_INSTRUCTION,
 )
@@ -35,6 +37,25 @@ def test_embedding_dimension():
 
 def test_empty_documents():
     assert embed_documents([]) == []
+
+
+def test_embed_texts_matches_documents():
+    texts = ["The applicant submitted income proof.", "Bank statements were provided."]
+    from_texts = embed_texts(texts)
+    from_docs = embed_documents([Document(page_content=t) for t in texts])
+    assert len(from_texts) == len(from_docs) == 2
+    assert all(math.isclose(a, b, rel_tol=1e-6) for row_a, row_b in zip(from_texts, from_docs) for a, b in zip(row_a, row_b))
+
+
+def test_embed_texts_drops_blank():
+    assert embed_texts(["", "   "]) == []
+
+
+def test_token_length_counts_word_pieces():
+    assert token_length("") == 0
+    long_text = "loan amount interest rate repayment " * 3
+    short_text = "loan"
+    assert token_length(long_text) > token_length(short_text) >= 1
 
 
 def test_embedding_values_are_floats():

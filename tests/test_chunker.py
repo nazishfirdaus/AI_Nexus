@@ -116,3 +116,94 @@ def test_invalid_config():
 
 def test_chunk_id_for():
     assert chunk_id_for("D", 3, 1) == "D_p3_c1"
+
+
+# ----------------------------------------------------------- length_fn / units
+def _word_len(text: str) -> int:
+    return len(text.split())
+
+
+def test_length_fn_measures_in_custom_units():
+    # chunk_size/overlap are now in words, not characters.
+    chunker = Chunker(chunk_size=10, chunk_overlap=2, length_fn=_word_len)
+    text = " ".join(f"w{i}" for i in range(60))
+    parts = chunker.split_text(text)
+    assert len(parts) > 1
+    assert all(_word_len(p) <= 10 for p in parts)
+
+
+def test_length_fn_short_text_single_chunk():
+    chunker = Chunker(chunk_size=10, chunk_overlap=2, length_fn=_word_len)
+    assert chunker.split_text("only four words here") == ["only four words here"]
+
+
+def test_length_fn_hard_split_respects_token_window():
+    # A single unbroken run with no separators, measured in "units" of two chars:
+    # the density-based char-window fallback must still run and split it.
+    def half_len(text: str) -> int:
+        return max(1, len(text) // 2)
+
+    chunker = Chunker(chunk_size=5, chunk_overlap=1, length_fn=half_len)
+    parts = chunker.split_text("x" * 100)
+    assert len(parts) > 1
+    assert all(part for part in parts)
+    assert "".join(parts).startswith("x")
+
+
+def test_target_size_closes_chunks_early():
+    text = " ".join(f"w{i}" for i in range(40))
+    # cap 10 words, soft target 5 words: chunks should not usually hit the cap.
+    chunker = Chunker(
+        chunk_size=10, chunk_overlap=0, length_fn=_word_len, target_size=5
+    )
+    parts = chunker.split_text(text)
+    assert all(_word_len(p) <= 10 for p in parts)
+    assert sum(1 for p in parts if _word_len(p) <= 6) >= len(parts) - 1
+
+
+def test_default_target_does_not_change_chunking():
+    text = " ".join(f"w{i}" for i in range(40))
+    plain = Chunker(chunk_size=10, chunk_overlap=2, length_fn=_word_len)
+    explicit = Chunker(
+        chunk_size=10, chunk_overlap=2, length_fn=_word_len, target_size=10
+    )
+    assert plain.split_text(text) == explicit.split_text(text)
+
+
+# ------------------------------------------------------------- sentence-aware
+def test_sentence_aware_keeps_whole_sentences():
+    chunker = Chunker(chunk_size=40, chunk_overlap=0, sentence_aware=True)
+    text = (
+        "First sentence is here. "
+        "Second sentence is a bit longer. "
+        "Third sentence closes it out."
+    )
+    parts = chunker.split_text(text)
+    assert len(parts) > 1
+    # Every sentence fits within the cap, so none may be split across chunks.
+    for sentence in ("First sentence is here.", "Second sentence is a bit longer.", "Third sentence closes it out."):
+        assert any(sentence in part for part in parts)
+        assert sum(sentence in part for part in parts) == 1
+
+
+def test_sentence_aware_preserves_punctuation():
+    chunker = Chunker(chunk_size=16, chunk_overlap=0, sentence_aware=True)
+    text = "Alpha one. Beta two. Gamma three. Delta four."
+    parts = chunker.split_text(text)
+    assert " ".join(parts).replace("  ", " ").strip() == text
+
+
+def test_sentence_aware_long_sentence_falls_back_to_generic_split():
+    chunker = Chunker(chunk_size=20, chunk_overlap=4, sentence_aware=True)
+    # One very long sentence with no sentence boundary must still be split safely.
+    text = "word " * 40
+    parts = chunker.split_text(text)
+    assert len(parts) > 1
+    assert all(len(p) <= 20 for p in parts)
+
+
+def test_sentence_aware_off_by_default_matches_generic():
+    text = PAGE_TEXT
+    plain = Chunker(chunk_size=50, chunk_overlap=10)
+    explicit = Chunker(chunk_size=50, chunk_overlap=10, sentence_aware=False)
+    assert plain.split_text(text) == explicit.split_text(text)

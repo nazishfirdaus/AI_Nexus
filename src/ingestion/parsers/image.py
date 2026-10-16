@@ -53,6 +53,7 @@ def parse_image(
             filename=path.name,
             page_number=1,
             ocr_used=True,
+            doc_type="image",
             extractor="ocr",
             ocr_engine=engine_used,
             **stats,

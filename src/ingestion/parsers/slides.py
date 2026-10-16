@@ -96,6 +96,7 @@ def parse_pptx(file_path: str | Path) -> list[Document]:
                 text,
                 filename=path.name,
                 page_number=slide_number,
+                doc_type="pptx",
                 raw_chars=raw_chars,
                 clean_chars=clean_chars,
                 **doc_meta,

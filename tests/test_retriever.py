@@ -131,3 +131,35 @@ def test_reset_clears_bm25():
     r = make()
     r.reset()
     assert r.bm25_retrieve("loan amount") == []
+
+
+# ------------------------------------------------------------------ RRF fusion
+def test_rrf_fuse_rank_wins_at_equal_weight():
+    c = chunks()
+    fused = HybridRetriever._rrf_fuse([([c[0]], 1.0), ([c[1]], 1.0)], 60)
+    assert [d.metadata["chunk_id"] for d in fused] == [1, 2]
+
+
+def test_rrf_fuse_weight_bias_flips_order():
+    c = chunks()
+    fused = HybridRetriever._rrf_fuse([([c[0]], 0.1), ([c[1]], 1.0)], 60)
+    assert [d.metadata["chunk_id"] for d in fused] == [2, 1]
+
+
+def test_rrf_fuse_dedupes_document_found_by_both():
+    c = chunks()
+    fused = HybridRetriever._rrf_fuse([([c[0], c[1]], 1.0), ([c[0]], 1.0)], 60)
+    assert [d.metadata["chunk_id"] for d in fused] == [1, 2]
+
+
+def test_hybrid_retrieve_honours_settings_weights(monkeypatch):
+    from config import settings
+
+    c = chunks()
+    r = make(db=FakeDB([c[2], c[0], c[1]]))  # dense ranks chunk 3 first
+    monkeypatch.setattr(settings, "DENSE_WEIGHT", 1.0)
+    monkeypatch.setattr(settings, "BM25_WEIGHT", 0.0)
+    assert r.hybrid_retrieve("interest rate")[0].metadata["chunk_id"] == 3
+    monkeypatch.setattr(settings, "DENSE_WEIGHT", 0.0)
+    monkeypatch.setattr(settings, "BM25_WEIGHT", 1.0)
+    assert r.hybrid_retrieve("interest rate")[0].metadata["chunk_id"] == 1

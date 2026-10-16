@@ -1,8 +1,31 @@
 import os
 
 # ---- Chunking / ingestion (unchanged) --------------------------------------
-CHUNK_SIZE = 400
-CHUNK_OVERLAP = 80
+CHUNK_SIZE = int(os.getenv("ANEXUS_CHUNK_SIZE", "400"))
+CHUNK_OVERLAP = int(os.getenv("ANEXUS_CHUNK_OVERLAP", "80"))
+# Token-aware sizing (optional). When ANEXUS_CHUNK_TOKEN_AWARE=1 the chunker
+# measures text with the embedder's own tokenizer instead of characters, so
+# chunks are sized against the model's real window. This needs re-embedding the
+# whole corpus to take effect; it is OFF by default (character sizing) until an
+# evaluation shows a retrieval win.
+CHUNK_TOKEN_AWARE = os.getenv(
+    "ANEXUS_CHUNK_TOKEN_AWARE", "0"
+).strip().lower() in ("1", "true", "yes")
+# Hard cap on chunk length in tokens (must stay below the embedder's max window).
+CHUNK_MAX_TOKENS = int(os.getenv("ANEXUS_CHUNK_MAX_TOKENS", "500"))
+# Soft fill target: chunks are flushed once they reach this many tokens, giving
+# more uniform sizes. Must be <= CHUNK_MAX_TOKENS.
+CHUNK_TARGET_TOKENS = int(os.getenv("ANEXUS_CHUNK_TARGET_TOKENS", "384"))
+# Token overlap carried between consecutive chunks.
+CHUNK_OVERLAP_TOKENS = int(os.getenv("ANEXUS_CHUNK_OVERLAP_TOKENS", "64"))
+# Contextual chunk headers (optional). "meta" prepends a short "title · page N"
+# header to the text that is *embedded* (improving retrieval of context-poor
+# chunks), while the stored chunk text stays clean for citations and the LLM.
+# "off" (default) embeds the chunk text unchanged. Needs re-embedding.
+CHUNK_CONTEXT_HEADER = os.getenv("ANEXUS_CHUNK_CONTEXT_HEADER", "off").strip().lower()
+# Sentence-aware chunking (optional): pack whole sentences so a sentence that fits
+# is never split across two chunks. Changes chunk boundaries, so needs re-embedding.
+CHUNK_SENTENCE_AWARE = os.getenv("ANEXUS_CHUNK_SENTENCE_AWARE", "0").strip().lower() in ("1", "true", "yes", "on")
 MIN_TEXT_LENGTH_FOR_OCR = 100
 OCR_DPI = 300
 # Chroma writes/reads are batched so a single huge upload or corpus never issues
@@ -143,9 +166,11 @@ SIMULATE_LLM = os.getenv("SIMULATE_LLM", "0").strip().lower() in ("1", "true", "
 DENSE_K = BASE_K_RETRIEVAL
 BM25_K = BASE_K_RETRIEVAL
 HYBRID_CANDIDATES = BASE_K_RETRIEVAL * 2
-DENSE_WEIGHT = 0.5
-BM25_WEIGHT = 0.5
-RRF_K = 60
+# Weighted RRF: each source contributes weight / (RRF_K + rank). Equal weights
+# reproduce classic RRF; bias toward dense or BM25 without code changes.
+DENSE_WEIGHT = float(os.getenv("ANEXUS_DENSE_WEIGHT", "0.5"))
+BM25_WEIGHT = float(os.getenv("ANEXUS_BM25_WEIGHT", "0.5"))
+RRF_K = int(os.getenv("ANEXUS_RRF_K", "60"))
 RERANK_BATCH_SIZE = 8  # small batches for the 4 GB RAM machine
 
 # LLM calls

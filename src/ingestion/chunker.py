@@ -8,11 +8,16 @@ importing that package pulls in torch/sentence-transformers, spaCy and (uninstal
 NLTK just to reach ``RecursiveCharacterTextSplitter``, which makes every import slow
 and fragile. The algorithm below mirrors the recursive splitter behaviour (splitters
 from coarse to fine, chunk-size + overlap windows).
+
+Sizing is measured with an injectable ``length_fn`` (characters by default). Passing
+the embedding model's tokenizer lets chunks be sized in model tokens instead, without
+this module importing any heavy library itself.
 """
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Sequence
+import re
+from typing import Callable, Iterable, Sequence
 
 from langchain_core.documents import Document
 
@@ -21,6 +26,11 @@ from config.settings import CHUNK_OVERLAP, CHUNK_SIZE
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SEPARATORS = ["\n\n", "\n", ". ", ", ", " ", ""]
+
+# Sentence boundary: whitespace that follows a sentence terminator. The lookbehind
+# keeps the terminator with the preceding sentence, so joining sentences back with
+# a single space reproduces the text exactly.
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 def chunk_id_for(document_id: str, page_number: int, index: int) -> str:
@@ -33,6 +43,9 @@ class Chunker:
         chunk_size: int = CHUNK_SIZE,
         chunk_overlap: int = CHUNK_OVERLAP,
         separators: Sequence[str] | None = None,
+        length_fn: Callable[[str], int] | None = None,
+        target_size: int | None = None,
+        sentence_aware: bool = False,
     ) -> None:
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
@@ -41,16 +54,25 @@ class Chunker:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.separators = list(separators or _DEFAULT_SEPARATORS)
+        # Sentence-aware mode packs whole sentences into chunks (never splitting a
+        # sentence that fits) instead of splitting on the first matching separator.
+        self.sentence_aware = bool(sentence_aware)
+        # ``length_fn`` measures a piece in the same unit as chunk_size/overlap.
+        # Default is characters; a tokenizer length enables token-aware sizing.
+        self._measure: Callable[[str], int] = length_fn or len
+        # Soft fill target: close a chunk once it reaches this many units. Only
+        # tighter than chunk_size; equal to it (the default) means "fill the cap".
+        target = target_size or chunk_size
+        self.target_size = min(max(1, target), chunk_size)
 
-# ------------------------------------------------------------- split logic
-    @staticmethod
-    def _word_carry(pieces: list[str], max_chars: int) -> tuple[list[str], int]:
-        """Suffix of `pieces` whose joined length fits in max_chars (kept whole)."""
+    # ------------------------------------------------------------- split logic
+    def _word_carry(self, pieces: list[str], max_units: int) -> tuple[list[str], int]:
+        """Suffix of `pieces` whose joined length fits in max_units (kept whole)."""
         carry: list[str] = []
         total = 0
         for piece in reversed(pieces):
-            need = len(piece) + (1 if carry else 0)
-            if total + need > max_chars:
+            need = self._measure(piece) + (1 if carry else 0)
+            if total + need > max_units:
                 break
             carry.insert(0, piece)
             total += need
@@ -64,8 +86,8 @@ class Chunker:
         """
         stream: list[str] = []
         for part in parts:
-            if len(part) > self.chunk_size:
-                stream.extend(self.split_text(part))
+            if self._measure(part) > self.chunk_size:
+                stream.extend(self._split_recursive(part))
             else:
                 stream.append(part)
 
@@ -73,17 +95,23 @@ class Chunker:
         buffer: list[str] = []
         buf_len = 0
         for part in stream:
-            extra = len(part) + (1 if buffer else 0)
+            part_len = self._measure(part)
+            extra = part_len + (1 if buffer else 0)
             if buf_len + extra <= self.chunk_size:
                 buffer.append(part)
                 buf_len += extra
+                # Soft target: close the chunk early so sizes stay uniform.
+                if self.target_size < self.chunk_size and buf_len >= self.target_size:
+                    chunks.append(separator.join(buffer))
+                    carry, carry_len = self._word_carry(buffer, self.chunk_overlap)
+                    buffer, buf_len = carry, carry_len
                 continue
 
             if buffer:
                 chunks.append(separator.join(buffer))
             carry, carry_len = self._word_carry(buffer, self.chunk_overlap)
             buffer, buf_len = carry, carry_len
-            extra = len(part) + (1 if buffer else 0)
+            extra = part_len + (1 if buffer else 0)
             if buf_len + extra <= self.chunk_size:
                 buffer.append(part)
                 buf_len += extra
@@ -92,23 +120,55 @@ class Chunker:
                 # keep the carry as a short fragment (preserves continuity).
                 chunks.append(separator.join(buffer))
                 buffer = [part]
-                buf_len = len(part)
+                buf_len = part_len
             else:
                 buffer = [part]
-                buf_len = len(part)
+                buf_len = part_len
 
         if buffer:
             chunks.append(separator.join(buffer))
         return chunks
+
+    def _hard_split(self, text: str) -> list[str]:
+        """Split text with no usable separator, windows measured in length units."""
+        units = self._measure(text)
+        if units <= self.chunk_size:
+            return [text]
+        # Convert a unit window into a character window using the measured density.
+        # For the default len() measure the density is exactly 1 char/unit.
+        chars_per_unit = len(text) / units if units else 1.0
+        window = max(1, int(round(self.chunk_size * chars_per_unit)))
+        step = max(1, int(round((self.chunk_size - self.chunk_overlap) * chars_per_unit)))
+        return [text[i : i + window] for i in range(0, len(text), step)]
 
     def split_text(self, text: str) -> list[str]:
         """Recursively split a single page into <= chunk_size pieces."""
         text = text.strip()
         if not text:
             return []
-        if len(text) <= self.chunk_size:
+        if self._measure(text) <= self.chunk_size:
             return [text]
 
+        if self.sentence_aware:
+            sentences = [s for s in _SENTENCE_RE.split(text) if s.strip()]
+            if len(sentences) > 1:
+                return self._merge_sentences(sentences)
+
+        return self._split_recursive(text)
+
+    def _merge_sentences(self, sentences: list[str]) -> list[str]:
+        """Pack whole sentences into chunks; oversized sentences split generically."""
+        merged = self._merge_parts(sentences, " ")
+        out: list[str] = []
+        for piece in merged:
+            if self._measure(piece) <= self.chunk_size:
+                out.append(piece)
+            else:
+                out.extend(self._split_recursive(piece))
+        return out
+
+    def _split_recursive(self, text: str) -> list[str]:
+        """Generic recursive split (no sentence awareness) used as the fallback."""
         for separator in self.separators:
             if not separator:
                 continue
@@ -120,15 +180,14 @@ class Chunker:
             merged = self._merge_parts(parts, separator)
             out: list[str] = []
             for piece in merged:
-                if len(piece) <= self.chunk_size:
+                if self._measure(piece) <= self.chunk_size:
                     out.append(piece)
                 else:
-                    out.extend(self.split_text(piece))
+                    out.extend(self._split_recursive(piece))
             return out
 
         # No separator helped (e.g. one giant token): hard split with overlap.
-        step = max(1, self.chunk_size - self.chunk_overlap)
-        return [text[i : i + self.chunk_size] for i in range(0, len(text), step)]
+        return self._hard_split(text)
 
     # ----------------------------------------------------------- public API
     def split(self, documents: Iterable[Document]) -> list[Document]:
