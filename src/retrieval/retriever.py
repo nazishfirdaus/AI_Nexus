@@ -134,23 +134,37 @@ class HybridRetriever:
             logger.exception("Could not rebuild BM25 index from vector DB")
 
     # -------------------------------------------------------------- retrieval
-    def dense_retrieve(self, query: str) -> List[Document]:
-        """Semantic retrieval using ChromaDB."""
+    def dense_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
+        """Semantic retrieval using ChromaDB.
+
+        When ``document_id`` is given, the search is restricted (via a Chroma
+        metadata filter) to that document's chunks.
+        """
         if not query.strip():
             return []
+        where = {"document_id": document_id} if document_id is not None else None
         try:
             query_embedding = self.embedding_model.encode(
                 self.query_prefix + query,
                 normalize_embeddings=True,
                 convert_to_numpy=True,
             ).tolist()
-            return list(self.vector_db.search(query_embedding=query_embedding, k=self.k))
+            return list(
+                self.vector_db.search(
+                    query_embedding=query_embedding, k=self.k, where=where
+                )
+            )
         except Exception:  # dense failure must not kill BM25 results
             logger.exception("Dense retrieval failed; continuing with BM25 only")
             return []
 
-    def bm25_retrieve(self, query: str) -> List[Document]:
-        """Keyword retrieval using BM25 (only chunks that share a word with the query)."""
+    def bm25_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
+        """Keyword retrieval using BM25 (only chunks that share a word with the query).
+
+        When ``document_id`` is given, only that document's chunks are considered.
+        BM25 keeps its full-corpus idf; the scope is applied to the ranked
+        candidates (BM25 has no native metadata filter).
+        """
         self._ensure_bm25()
         if not query.strip() or self.bm25 is None:
             return []
@@ -163,7 +177,16 @@ class HybridRetriever:
 
         q_set = set(tokens)
         # Without this filter BM25 returns k arbitrary chunks even when nothing matches.
-        return [self.documents[i] for i in ranked if q_set & self._token_sets[i]][: self.k]
+        def in_scope(i: int) -> bool:
+            return document_id is None or (
+                self.documents[i].metadata or {}
+            ).get("document_id") == document_id
+
+        return [
+            self.documents[i]
+            for i in ranked
+            if q_set & self._token_sets[i] and in_scope(i)
+        ][: self.k]
 
     @staticmethod
     def _document_id(document: Document):
@@ -186,16 +209,19 @@ class HybridRetriever:
                 docs.setdefault(key, doc)
         return [docs[key] for key in sorted(scores, key=scores.__getitem__, reverse=True)]
 
-    def hybrid_retrieve(self, query: str) -> List[Document]:
+    def hybrid_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
         """Dense + BM25, fused by weighted Reciprocal Rank Fusion.
 
         Each source contributes ``weight / (rrf_k + rank)`` per candidate, so
         ``DENSE_WEIGHT``/``BM25_WEIGHT`` bias the fusion toward semantic or keyword
         matching. Equal weights with ``rrf_k = 60`` reproduce classic RRF; all three
         are env-tunable without code changes. Returns up to 2*k candidates.
+
+        When ``document_id`` is given the scope is applied to *both* channels, so
+        only chunks of that document can appear in the fused result.
         """
         sources = (
-            (self.dense_retrieve(query), getattr(settings, "DENSE_WEIGHT", 1.0)),
-            (self.bm25_retrieve(query), getattr(settings, "BM25_WEIGHT", 1.0)),
+            (self.dense_retrieve(query, document_id), getattr(settings, "DENSE_WEIGHT", 1.0)),
+            (self.bm25_retrieve(query, document_id), getattr(settings, "BM25_WEIGHT", 1.0)),
         )
         return self._rrf_fuse(sources, settings.RRF_K)

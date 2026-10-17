@@ -61,6 +61,7 @@ def _init_state() -> None:
         "conversation_summary": None,
         "documents": [],           # registry records: [{id, filename, pages, chunks, ...}]
         "doc_state": "empty",      # empty | processing | ready | error
+        "retrieval_scope": None,   # None = all documents, else a document_id
         "session_restored": False,
     }
     for key, value in defaults.items():
@@ -85,6 +86,8 @@ _USER_SCOPED_KEYS = (
     "conversation_summary",
     "documents",
     "doc_state",
+    "retrieval_scope",
+    "scope_select",
     "session_restored",
     "user_ctx",
 )
@@ -283,7 +286,19 @@ def _refresh_documents() -> list[dict]:
     documents = _bundle().pipeline.list_documents()
     st.session_state["documents"] = documents
     st.session_state["doc_state"] = "ready" if documents else "empty"
+    _reset_scope_if_missing(documents)
     return documents
+
+
+ALL_DOCUMENTS = "__all_documents__"
+
+
+def _reset_scope_if_missing(documents: list[dict]) -> None:
+    """Drop a stale per-document search scope when its document is gone."""
+    scope = st.session_state.get("retrieval_scope")
+    if scope is not None and scope not in {d["id"] for d in documents}:
+        st.session_state["retrieval_scope"] = None
+        st.session_state.pop("scope_select", None)
 
 
 def _already_ingested(filename: str) -> bool:
@@ -552,6 +567,16 @@ def _render_context_banner() -> None:
         st.info("Upload one or more documents to ask questions.")
 
 
+def _render_scope_caption() -> None:
+    """Show which document (if any) retrieval is currently restricted to."""
+    scope = st.session_state.get("retrieval_scope")
+    if not scope:
+        return
+    documents = st.session_state.get("documents", [])
+    name = next((d["filename"] for d in documents if d["id"] == scope), scope)
+    st.caption(f"🔎 Searching in **{name}** only.")
+
+
 def _render_citations(citations: list[dict]) -> None:
     """Render stored citation dicts with their source document and page."""
     labels = ", ".join(
@@ -567,6 +592,7 @@ def _render_citations(citations: list[dict]) -> None:
 def render_chat() -> None:
     st.markdown("#### Ask")
     _render_context_banner()
+    _render_scope_caption()
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
@@ -594,6 +620,7 @@ def render_chat() -> None:
                 prompt,
                 chat_history=list(st.session_state["messages"][:-1]),
                 conversation_summary=st.session_state["conversation_summary"],
+                document_id=st.session_state.get("retrieval_scope"),
             )
         except Exception as exc:  # never let an unexpected failure kill the UI
             logger.exception("answer_query failed")
@@ -663,6 +690,7 @@ def _render_document_section() -> None:
         return
 
     st.success(f"**{len(documents)}** document(s) ready — searched together")
+    _render_scope_selector(documents)
     for doc in documents:
         name_col, action_col = st.columns([4, 1])
         with name_col:
@@ -678,6 +706,26 @@ def _render_document_section() -> None:
 
     if st.button("🧹 Clear all documents"):
         _clear_documents()
+
+
+def _render_scope_selector(documents: list[dict]) -> None:
+    """Session-wide 'Search in' scope: all documents, or one in particular."""
+    options = [ALL_DOCUMENTS] + [d["id"] for d in documents]
+    labels = {ALL_DOCUMENTS: "All documents"}
+    labels.update({d["id"]: d["filename"] for d in documents})
+
+    selected = st.session_state.get("scope_select", ALL_DOCUMENTS)
+    if selected not in options:  # doc removed since last run
+        selected = ALL_DOCUMENTS
+        st.session_state["scope_select"] = ALL_DOCUMENTS
+    chosen = st.selectbox(
+        "Search in",
+        options,
+        index=options.index(selected),
+        format_func=lambda oid: labels.get(oid, oid),
+        key="scope_select",
+    )
+    st.session_state["retrieval_scope"] = None if chosen == ALL_DOCUMENTS else chosen
 
 
 def _render_chat_section() -> None:

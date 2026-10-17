@@ -195,6 +195,15 @@ Each source contributes `weight / (RRF_K + rank)` per candidate:
 
 (These are read from `config/settings.py`, where they default to the same values.)
 
+### Search within one document
+
+The sidebar **Search in** selector restricts a question to a single ingested
+document (default: all documents). The scope is applied to *both* retrieval
+channels — Chroma's `where` filter for dense and a candidate filter for BM25 — so
+fused results can only come from the chosen document. Selecting "All documents"
+keeps the default behavior. Removing the scoped document resets the selector to
+"All documents".
+
 ## Scale, multilingual search & dedup
 
 Tunings that matter most once the corpus grows past a few hundred documents:

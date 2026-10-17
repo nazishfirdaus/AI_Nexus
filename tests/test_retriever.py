@@ -38,9 +38,16 @@ class FakeDB:
         self.results = results or []
         self.calls = []
 
-    def search(self, query_embedding, k):
-        self.calls.append((query_embedding, k))
-        return self.results[:k]
+    def search(self, query_embedding, k, where=None):
+        self.calls.append((query_embedding, k, where))
+        results = self.results
+        if where:
+            results = [
+                d
+                for d in results
+                if all((d.metadata or {}).get(key) == val for key, val in where.items())
+            ]
+        return results[:k]
 
 
 def make(db=None, docs="default", model=None, k=10):
@@ -163,3 +170,36 @@ def test_hybrid_retrieve_honours_settings_weights(monkeypatch):
     monkeypatch.setattr(settings, "DENSE_WEIGHT", 0.0)
     monkeypatch.setattr(settings, "BM25_WEIGHT", 1.0)
     assert r.hybrid_retrieve("interest rate")[0].metadata["chunk_id"] == 1
+
+
+# ------------------------------------------------------------------ per-document scope
+def two_doc_chunks():
+    return [
+        Document(page_content="The interest rate is 7.25 percent.",
+                 metadata={"document_id": "d1", "chunk_id": 1}),
+        Document(page_content="The interest rate is 9.5 percent.",
+                 metadata={"document_id": "d2", "chunk_id": 2}),
+    ]
+
+
+def test_dense_retrieve_forwards_scope_to_the_store():
+    db, model = FakeDB(two_doc_chunks()), FakeModel()
+    r = make(db=db, docs=two_doc_chunks(), model=model)
+    r.dense_retrieve("interest rate", document_id="d2")
+    assert db.calls[-1][2] == {"document_id": "d2"}
+    r.dense_retrieve("interest rate")
+    assert db.calls[-1][2] is None
+
+
+def test_bm25_retrieve_is_scoped_to_the_document():
+    docs = two_doc_chunks()
+    r = make(docs=docs)
+    assert [d.metadata["chunk_id"] for d in r.bm25_retrieve("interest rate")] == [1, 2]
+    assert [d.metadata["chunk_id"] for d in r.bm25_retrieve("interest rate", "d2")] == [2]
+
+
+def test_hybrid_retrieve_only_returns_the_scoped_document():
+    docs = two_doc_chunks()
+    r = make(db=FakeDB(docs), docs=docs)
+    out = r.hybrid_retrieve("interest rate", document_id="d2")
+    assert [d.metadata["document_id"] for d in out] == ["d2"]
