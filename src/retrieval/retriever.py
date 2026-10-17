@@ -134,11 +134,27 @@ class HybridRetriever:
             logger.exception("Could not rebuild BM25 index from vector DB")
 
     # -------------------------------------------------------------- retrieval
+    @staticmethod
+    def _cosine_similarity(document: Document) -> Optional[float]:
+        """Recover cosine similarity from Chroma's stored distance.
+
+        Embeddings are unit-length and the collection uses Chroma's default L2
+        space, which stores the *squared* L2 distance ``d = 2 - 2*cos``; therefore
+        ``cos = 1 - d/2`` (clamped for numerical safety). Returns ``None`` when no
+        distance is present, so a threshold never discards such a hit.
+        """
+        distance = (document.metadata or {}).get("distance")
+        if distance is None:
+            return None
+        return max(-1.0, min(1.0, 1.0 - float(distance) / 2.0))
+
     def dense_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
         """Semantic retrieval using ChromaDB.
 
         When ``document_id`` is given, the search is restricted (via a Chroma
-        metadata filter) to that document's chunks.
+        metadata filter) to that document's chunks. When the optional
+        ``RETRIEVAL_MIN_SIMILARITY`` threshold is set, hits below that cosine
+        similarity are dropped (hits without a distance are always kept).
         """
         if not query.strip():
             return []
@@ -149,7 +165,7 @@ class HybridRetriever:
                 normalize_embeddings=True,
                 convert_to_numpy=True,
             ).tolist()
-            return list(
+            hits = list(
                 self.vector_db.search(
                     query_embedding=query_embedding, k=self.k, where=where
                 )
@@ -157,6 +173,15 @@ class HybridRetriever:
         except Exception:  # dense failure must not kill BM25 results
             logger.exception("Dense retrieval failed; continuing with BM25 only")
             return []
+
+        threshold = getattr(settings, "RETRIEVAL_MIN_SIMILARITY", None)
+        if threshold is None:
+            return hits
+        return [
+            doc
+            for doc in hits
+            if (sim := self._cosine_similarity(doc)) is None or sim >= threshold
+        ]
 
     def bm25_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
         """Keyword retrieval using BM25 (only chunks that share a word with the query).

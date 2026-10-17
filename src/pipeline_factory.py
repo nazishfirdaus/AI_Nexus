@@ -112,7 +112,7 @@ def build_pipeline(
     pipe_retriever = retriever or HybridRetriever(
         vector_db=vec_db,
         documents=[],
-        k=10,
+        k=settings.BASE_K_RETRIEVAL,
         embedding_model=None,
     )
     chunk = chunker or _build_default_chunker()

@@ -37,17 +37,23 @@ class RankedChunk:
         return {"content": self.content, "metadata": self.metadata, "score": self.score}
 
 
+_UNSET = object()
+
+
 class CrossEncoderReranker:
     def __init__(
         self,
         model_name: str = settings.RERANKER_MODEL_NAME,
         top_k: int = settings.TOP_K_RERANK,
         batch_size: int = settings.RERANK_BATCH_SIZE,
+        min_score=_UNSET,
         device: str = "cpu",
     ) -> None:
         self.model_name = model_name
         self.top_k = top_k
         self.batch_size = batch_size  # small batches keep RAM low on 4 GB machines
+        # None disables the relevance floor; unset falls back to the env setting.
+        self.min_score = settings.RERANK_MIN_SCORE if min_score is _UNSET else min_score
         self.device = device
 
     @property
@@ -55,10 +61,20 @@ class CrossEncoderReranker:
         return _load_model(self.model_name, self.device)
 
     def rerank(
-        self, query: str, docs: Sequence[Document], top_k: int | None = None
+        self,
+        query: str,
+        docs: Sequence[Document],
+        top_k: int | None = None,
+        min_score=_UNSET,
     ) -> list[RankedChunk]:
-        """Score (query, chunk) pairs, sort descending, return top K with metadata."""
+        """Score (query, chunk) pairs, sort descending, return top K with metadata.
+
+        A relevance floor drops chunks scoring below it. `min_score` here overrides
+        the instance value; leaving it unset uses the instance value (which itself
+        comes from `RERANK_MIN_SCORE`, or is None for no filtering).
+        """
         k = top_k or self.top_k
+        threshold = self.min_score if min_score is _UNSET else min_score
         candidates = [d for d in docs if d.page_content and d.page_content.strip()]
         if not query.strip() or not candidates:
             return []
@@ -80,4 +96,6 @@ class CrossEncoderReranker:
             key=lambda r: r.score,
             reverse=True,
         )
+        if threshold is not None:
+            ranked = [r for r in ranked if r.score >= threshold]
         return ranked[:k]

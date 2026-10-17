@@ -24,6 +24,14 @@ def fake(monkeypatch):
     return model
 
 
+@pytest.fixture(autouse=True)
+def _threshold_off(monkeypatch):
+    """Keep the env-driven default threshold off unless a test sets it."""
+    from config import settings
+
+    monkeypatch.setattr(settings, "RERANK_MIN_SCORE", None)
+
+
 def docs():
     return [
         Document(page_content="signature page", metadata={"page_number": 5}),
@@ -79,3 +87,36 @@ def test_model_loaded_lazily(monkeypatch):
     assert called == []          # constructing must not load the model
     r.rerank("loan", docs())
     assert called == [1]
+
+
+# ------------------------------------------------------------------ score threshold
+# FakeModel scores by query-word overlap: page 2 -> 3, page 7 -> 1, page 5 -> 0.
+def test_min_score_drops_low_relevance(fake):
+    out = CrossEncoderReranker(min_score=2).rerank("loan amount rate", docs())
+    assert [r.metadata["page_number"] for r in out] == [2]
+
+
+def test_min_score_can_drop_everything(fake):
+    assert CrossEncoderReranker(min_score=99).rerank("loan amount rate", docs()) == []
+
+
+def test_min_score_none_disables_filtering(fake):
+    assert len(CrossEncoderReranker(min_score=None).rerank("loan amount rate", docs())) == 3
+
+
+def test_min_score_defaults_to_settings(fake, monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "RERANK_MIN_SCORE", 2)
+    out = CrossEncoderReranker().rerank("loan amount rate", docs())
+    assert [r.metadata["page_number"] for r in out] == [2]
+
+
+def test_min_score_call_override(fake):
+    out = CrossEncoderReranker(min_score=99).rerank("loan amount rate", docs(), min_score=0)
+    assert len(out) == 3  # 0 keeps even the score-0 chunk
+
+
+def test_top_k_applied_after_threshold(fake):
+    out = CrossEncoderReranker(min_score=0, top_k=2).rerank("loan amount rate", docs())
+    assert len(out) == 2

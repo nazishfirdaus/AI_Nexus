@@ -55,6 +55,14 @@ def make(db=None, docs="default", model=None, k=10):
     return HybridRetriever(db or FakeDB(), docs, k=k, embedding_model=model or FakeModel())
 
 
+@pytest.fixture(autouse=True)
+def _similarity_threshold_off(monkeypatch):
+    """Keep the env-driven dense threshold off unless a test sets it."""
+    from config import settings
+
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", None)
+
+
 def test_construction_does_not_load_real_embedder():
     make()          # would raise ImportError/slow download if it tried to load BGE
 
@@ -203,3 +211,39 @@ def test_hybrid_retrieve_only_returns_the_scoped_document():
     r = make(db=FakeDB(docs), docs=docs)
     out = r.hybrid_retrieve("interest rate", document_id="d2")
     assert [d.metadata["document_id"] for d in out] == ["d2"]
+
+
+# ------------------------------------------------------------------ dense similarity threshold
+def _scored_chunks():
+    # Distance is squared-L2 for unit vectors: cos = 1 - d/2. 0.2 -> 0.9, 1.6 -> 0.2.
+    return [
+        Document(page_content="near", metadata={"chunk_id": 1, "distance": 0.2}),
+        Document(page_content="far", metadata={"chunk_id": 2, "distance": 1.6}),
+        Document(page_content="no distance", metadata={"chunk_id": 3}),
+    ]
+
+
+def test_dense_min_similarity_drops_low_scores(monkeypatch):
+    from config import settings
+
+    docs = _scored_chunks()
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.5)
+    out = make(db=FakeDB(docs), docs=docs).dense_retrieve("q")
+    # 0.9 kept, 0.2 dropped, missing-distance kept.
+    assert [d.metadata["chunk_id"] for d in out] == [1, 3]
+
+
+def test_dense_min_similarity_disabled_by_default(monkeypatch):
+    from config import settings
+
+    docs = _scored_chunks()
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", None)
+    assert len(make(db=FakeDB(docs), docs=docs).dense_retrieve("q")) == 3
+
+
+def test_dense_min_similarity_can_drop_everything(monkeypatch):
+    from config import settings
+
+    docs = _scored_chunks()[:2]  # only scored chunks, no missing-distance escape hatch
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.99)
+    assert make(db=FakeDB(docs), docs=docs).dense_retrieve("q") == []
