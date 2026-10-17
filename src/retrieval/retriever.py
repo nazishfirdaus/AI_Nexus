@@ -134,23 +134,62 @@ class HybridRetriever:
             logger.exception("Could not rebuild BM25 index from vector DB")
 
     # -------------------------------------------------------------- retrieval
-    def dense_retrieve(self, query: str) -> List[Document]:
-        """Semantic retrieval using ChromaDB."""
+    @staticmethod
+    def _cosine_similarity(document: Document) -> Optional[float]:
+        """Recover cosine similarity from Chroma's stored distance.
+
+        Embeddings are unit-length and the collection uses Chroma's default L2
+        space, which stores the *squared* L2 distance ``d = 2 - 2*cos``; therefore
+        ``cos = 1 - d/2`` (clamped for numerical safety). Returns ``None`` when no
+        distance is present, so a threshold never discards such a hit.
+        """
+        distance = (document.metadata or {}).get("distance")
+        if distance is None:
+            return None
+        return max(-1.0, min(1.0, 1.0 - float(distance) / 2.0))
+
+    def dense_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
+        """Semantic retrieval using ChromaDB.
+
+        When ``document_id`` is given, the search is restricted (via a Chroma
+        metadata filter) to that document's chunks. When the optional
+        ``RETRIEVAL_MIN_SIMILARITY`` threshold is set, hits below that cosine
+        similarity are dropped (hits without a distance are always kept).
+        """
         if not query.strip():
             return []
+        where = {"document_id": document_id} if document_id is not None else None
         try:
             query_embedding = self.embedding_model.encode(
                 self.query_prefix + query,
                 normalize_embeddings=True,
                 convert_to_numpy=True,
             ).tolist()
-            return list(self.vector_db.search(query_embedding=query_embedding, k=self.k))
+            hits = list(
+                self.vector_db.search(
+                    query_embedding=query_embedding, k=self.k, where=where
+                )
+            )
         except Exception:  # dense failure must not kill BM25 results
             logger.exception("Dense retrieval failed; continuing with BM25 only")
             return []
 
-    def bm25_retrieve(self, query: str) -> List[Document]:
-        """Keyword retrieval using BM25 (only chunks that share a word with the query)."""
+        threshold = getattr(settings, "RETRIEVAL_MIN_SIMILARITY", None)
+        if threshold is None:
+            return hits
+        return [
+            doc
+            for doc in hits
+            if (sim := self._cosine_similarity(doc)) is None or sim >= threshold
+        ]
+
+    def bm25_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
+        """Keyword retrieval using BM25 (only chunks that share a word with the query).
+
+        When ``document_id`` is given, only that document's chunks are considered.
+        BM25 keeps its full-corpus idf; the scope is applied to the ranked
+        candidates (BM25 has no native metadata filter).
+        """
         self._ensure_bm25()
         if not query.strip() or self.bm25 is None:
             return []
@@ -163,7 +202,16 @@ class HybridRetriever:
 
         q_set = set(tokens)
         # Without this filter BM25 returns k arbitrary chunks even when nothing matches.
-        return [self.documents[i] for i in ranked if q_set & self._token_sets[i]][: self.k]
+        def in_scope(i: int) -> bool:
+            return document_id is None or (
+                self.documents[i].metadata or {}
+            ).get("document_id") == document_id
+
+        return [
+            self.documents[i]
+            for i in ranked
+            if q_set & self._token_sets[i] and in_scope(i)
+        ][: self.k]
 
     @staticmethod
     def _document_id(document: Document):
@@ -186,16 +234,19 @@ class HybridRetriever:
                 docs.setdefault(key, doc)
         return [docs[key] for key in sorted(scores, key=scores.__getitem__, reverse=True)]
 
-    def hybrid_retrieve(self, query: str) -> List[Document]:
+    def hybrid_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
         """Dense + BM25, fused by weighted Reciprocal Rank Fusion.
 
         Each source contributes ``weight / (rrf_k + rank)`` per candidate, so
         ``DENSE_WEIGHT``/``BM25_WEIGHT`` bias the fusion toward semantic or keyword
         matching. Equal weights with ``rrf_k = 60`` reproduce classic RRF; all three
         are env-tunable without code changes. Returns up to 2*k candidates.
+
+        When ``document_id`` is given the scope is applied to *both* channels, so
+        only chunks of that document can appear in the fused result.
         """
         sources = (
-            (self.dense_retrieve(query), getattr(settings, "DENSE_WEIGHT", 1.0)),
-            (self.bm25_retrieve(query), getattr(settings, "BM25_WEIGHT", 1.0)),
+            (self.dense_retrieve(query, document_id), getattr(settings, "DENSE_WEIGHT", 1.0)),
+            (self.bm25_retrieve(query, document_id), getattr(settings, "BM25_WEIGHT", 1.0)),
         )
         return self._rrf_fuse(sources, settings.RRF_K)

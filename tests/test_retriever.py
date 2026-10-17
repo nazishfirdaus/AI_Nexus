@@ -38,14 +38,29 @@ class FakeDB:
         self.results = results or []
         self.calls = []
 
-    def search(self, query_embedding, k):
-        self.calls.append((query_embedding, k))
-        return self.results[:k]
+    def search(self, query_embedding, k, where=None):
+        self.calls.append((query_embedding, k, where))
+        results = self.results
+        if where:
+            results = [
+                d
+                for d in results
+                if all((d.metadata or {}).get(key) == val for key, val in where.items())
+            ]
+        return results[:k]
 
 
 def make(db=None, docs="default", model=None, k=10):
     docs = chunks() if docs == "default" else docs
     return HybridRetriever(db or FakeDB(), docs, k=k, embedding_model=model or FakeModel())
+
+
+@pytest.fixture(autouse=True)
+def _similarity_threshold_off(monkeypatch):
+    """Keep the env-driven dense threshold off unless a test sets it."""
+    from config import settings
+
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", None)
 
 
 def test_construction_does_not_load_real_embedder():
@@ -163,3 +178,72 @@ def test_hybrid_retrieve_honours_settings_weights(monkeypatch):
     monkeypatch.setattr(settings, "DENSE_WEIGHT", 0.0)
     monkeypatch.setattr(settings, "BM25_WEIGHT", 1.0)
     assert r.hybrid_retrieve("interest rate")[0].metadata["chunk_id"] == 1
+
+
+# ------------------------------------------------------------------ per-document scope
+def two_doc_chunks():
+    return [
+        Document(page_content="The interest rate is 7.25 percent.",
+                 metadata={"document_id": "d1", "chunk_id": 1}),
+        Document(page_content="The interest rate is 9.5 percent.",
+                 metadata={"document_id": "d2", "chunk_id": 2}),
+    ]
+
+
+def test_dense_retrieve_forwards_scope_to_the_store():
+    db, model = FakeDB(two_doc_chunks()), FakeModel()
+    r = make(db=db, docs=two_doc_chunks(), model=model)
+    r.dense_retrieve("interest rate", document_id="d2")
+    assert db.calls[-1][2] == {"document_id": "d2"}
+    r.dense_retrieve("interest rate")
+    assert db.calls[-1][2] is None
+
+
+def test_bm25_retrieve_is_scoped_to_the_document():
+    docs = two_doc_chunks()
+    r = make(docs=docs)
+    assert [d.metadata["chunk_id"] for d in r.bm25_retrieve("interest rate")] == [1, 2]
+    assert [d.metadata["chunk_id"] for d in r.bm25_retrieve("interest rate", "d2")] == [2]
+
+
+def test_hybrid_retrieve_only_returns_the_scoped_document():
+    docs = two_doc_chunks()
+    r = make(db=FakeDB(docs), docs=docs)
+    out = r.hybrid_retrieve("interest rate", document_id="d2")
+    assert [d.metadata["document_id"] for d in out] == ["d2"]
+
+
+# ------------------------------------------------------------------ dense similarity threshold
+def _scored_chunks():
+    # Distance is squared-L2 for unit vectors: cos = 1 - d/2. 0.2 -> 0.9, 1.6 -> 0.2.
+    return [
+        Document(page_content="near", metadata={"chunk_id": 1, "distance": 0.2}),
+        Document(page_content="far", metadata={"chunk_id": 2, "distance": 1.6}),
+        Document(page_content="no distance", metadata={"chunk_id": 3}),
+    ]
+
+
+def test_dense_min_similarity_drops_low_scores(monkeypatch):
+    from config import settings
+
+    docs = _scored_chunks()
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.5)
+    out = make(db=FakeDB(docs), docs=docs).dense_retrieve("q")
+    # 0.9 kept, 0.2 dropped, missing-distance kept.
+    assert [d.metadata["chunk_id"] for d in out] == [1, 3]
+
+
+def test_dense_min_similarity_disabled_by_default(monkeypatch):
+    from config import settings
+
+    docs = _scored_chunks()
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", None)
+    assert len(make(db=FakeDB(docs), docs=docs).dense_retrieve("q")) == 3
+
+
+def test_dense_min_similarity_can_drop_everything(monkeypatch):
+    from config import settings
+
+    docs = _scored_chunks()[:2]  # only scored chunks, no missing-distance escape hatch
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.99)
+    assert make(db=FakeDB(docs), docs=docs).dense_retrieve("q") == []

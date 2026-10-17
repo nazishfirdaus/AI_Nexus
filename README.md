@@ -195,6 +195,29 @@ Each source contributes `weight / (RRF_K + rank)` per candidate:
 
 (These are read from `config/settings.py`, where they default to the same values.)
 
+The retrieval depth is: each channel fetches `ANEXUS_BASE_K_RETRIEVAL` (default `10`)
+candidates, fusion returns up to twice that, and `ANEXUS_TOP_K_RERANK` (default `5`)
+contexts survive the cross-encoder reranker.
+
+Two **optional, off-by-default** relevance floors can trim weak hits:
+
+- `ANEXUS_RETRIEVAL_MIN_SIMILARITY` — minimum cosine similarity for a dense hit
+  (derived from Chroma's squared-L2 distance for unit-length vectors: `cos = 1 - d/2`);
+- `ANEXUS_RERANK_MIN_SCORE` — minimum cross-encoder logit.
+
+Both unset means no filtering; if every candidate falls below a floor the query
+gets a safe "no context" answer. Tune them on the evaluation harness and keep them
+off unless they clearly help.
+
+### Search within one document
+
+The sidebar **Search in** selector restricts a question to a single ingested
+document (default: all documents). The scope is applied to *both* retrieval
+channels — Chroma's `where` filter for dense and a candidate filter for BM25 — so
+fused results can only come from the chosen document. Selecting "All documents"
+keeps the default behavior. Removing the scoped document resets the selector to
+"All documents".
+
 ## Scale, multilingual search & dedup
 
 Tunings that matter most once the corpus grows past a few hundred documents:

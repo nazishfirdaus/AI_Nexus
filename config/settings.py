@@ -136,9 +136,12 @@ SUPPORTED_EXTENSIONS = (
 )
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 
-# ---- Retrieval / reranking (unchanged) -------------------------------------
-BASE_K_RETRIEVAL = 10
-TOP_K_RERANK = 5
+# ---- Retrieval / reranking --------------------------------------------------
+# Env-overridable so retrieval depth can be tuned without code changes. `BASE_K`
+# is fetched per channel (dense and BM25) before fusion; `TOP_K_RERANK` caps the
+# contexts handed to the LLM after cross-encoder reranking.
+BASE_K_RETRIEVAL = int(os.getenv("ANEXUS_BASE_K_RETRIEVAL", "10"))
+TOP_K_RERANK = int(os.getenv("ANEXUS_TOP_K_RERANK", "5"))
 
 # Env-overridable so a multilingual embedder (e.g. bge-m3) can be opted into
 # without code changes. Default is English-tuned BGE-large; switching model
@@ -172,6 +175,21 @@ DENSE_WEIGHT = float(os.getenv("ANEXUS_DENSE_WEIGHT", "0.5"))
 BM25_WEIGHT = float(os.getenv("ANEXUS_BM25_WEIGHT", "0.5"))
 RRF_K = int(os.getenv("ANEXUS_RRF_K", "60"))
 RERANK_BATCH_SIZE = 8  # small batches for the 4 GB RAM machine
+
+
+def _optional_float(name: str) -> "float | None":
+    """Read an optional float env var; unset/blank means "disabled" (None)."""
+    raw = os.getenv(name, "").strip()
+    return float(raw) if raw else None
+
+
+# Optional relevance thresholds (OFF by default: None = no filtering).
+# Retrieval threshold is a *cosine similarity* floor on dense hits. Chroma stores
+# unit-length vectors in its default L2 space, where squared-L2 distance
+# d = 2 - 2*cos, so cos = 1 - d/2 (exact for normalized embeddings).
+RETRIEVAL_MIN_SIMILARITY = _optional_float("ANEXUS_RETRIEVAL_MIN_SIMILARITY")
+# Cross-encoder score floor (raw logit from ms-marco MiniLM; higher = more relevant).
+RERANK_MIN_SCORE = _optional_float("ANEXUS_RERANK_MIN_SCORE")
 
 # LLM calls
 LLM_TIMEOUT_S = 30

@@ -502,12 +502,17 @@ class RAGPipeline:
         query: str,
         chat_history: Optional[list[dict]] = None,
         conversation_summary: Optional[str] = None,
+        document_id: Optional[str] = None,
     ) -> FinalAnswer:
         """Answer a question against every uploaded document.
 
         `chat_history` is the prior conversation (oldest first, current prompt
         excluded) and `conversation_summary` is the rolling summary of turns
         that fell outside the window. Both are scrubbed before use.
+
+        When `document_id` is given, retrieval is restricted to that single
+        document (both dense and BM25). An unknown id yields a no-context answer
+        rather than silently leaking a cross-document result.
         """
         validation = self._validate_query(query)
         if validation is not None:
@@ -517,6 +522,13 @@ class RAGPipeline:
             return self.aggregator.no_context(
                 routing_reason="No documents are uploaded yet."
             )
+
+        if document_id is not None:
+            known = {d["id"] for d in self.list_documents()}
+            if document_id not in known:
+                return self.aggregator.no_context(
+                    routing_reason="The selected document is no longer available."
+                )
 
         # 0) Memory: window the history and scrub it (PII gate applies to the
         #    conversation too - raw user text must never reach a provider).
@@ -532,14 +544,18 @@ class RAGPipeline:
             if rewritten:
                 search_query = rewritten
 
-        # 1) Hybrid retrieval (dense + BM25, RRF fused)
-        retrieved = self.retriever.hybrid_retrieve(search_query)
+        # 1) Hybrid retrieval (dense + BM25, RRF fused), optionally doc-scoped
+        retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
         if not retrieved and search_query != query:
             # The rewrite went nowhere: fall back to the user's raw query.
-            retrieved = self.retriever.hybrid_retrieve(query)
+            retrieved = self.retriever.hybrid_retrieve(query, document_id)
             if retrieved:
                 search_query = query
         if not retrieved:
+            if document_id is not None:
+                return self.aggregator.no_context(
+                    routing_reason="No matching context in the selected document."
+                )
             return self.aggregator.no_context(routing_reason="No context matched the query.")
 
         # 2) Local cross-encoder reranking

@@ -59,6 +59,7 @@ class FakeRetriever:
         self.documents: list = []
         self.rebuilt: list = []
         self.queries: list = []
+        self.scopes: list = []
 
     def reset(self):
         self.documents = []
@@ -70,9 +71,17 @@ class FakeRetriever:
     def add_documents(self, chunks):
         self.documents.extend(chunks)
 
-    def hybrid_retrieve(self, query):
+    def hybrid_retrieve(self, query, document_id=None):
         self.queries.append(query)
-        return list(self.documents)
+        self.scopes.append(document_id)
+        docs = list(self.documents)
+        if document_id is not None:
+            docs = [
+                d
+                for d in docs
+                if (d.metadata or {}).get("document_id") == document_id
+            ]
+        return docs
 
 
 class FakeReranker:
@@ -264,6 +273,40 @@ def test_no_reranked_context(pipeline, pdf_path):
     assert answer.citations == []
 
 
+# ------------------------------------------------------------------ per-document scope
+def test_answer_query_forwards_document_scope(pipeline, pdf_path):
+    pipeline.ingest_document(pdf_path)
+    doc_id = pipeline.list_documents()[0]["id"]
+    pipeline.answer_query("What is the interest rate?", document_id=doc_id)
+    assert pipeline.retriever.scopes[-1] == doc_id
+
+
+def test_answer_query_defaults_to_all_documents(pipeline, pdf_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.answer_query("What is the interest rate?")
+    assert pipeline.retriever.scopes[-1] is None
+
+
+def test_answer_query_unknown_scope_is_no_context(pipeline, pdf_path):
+    pipeline.ingest_document(pdf_path)
+    answer = pipeline.answer_query("What is the rate?", document_id="ghost.pdf")
+    assert answer.text == NO_CONTEXT_ANSWER
+    assert answer.citations == []
+    assert "no longer available" in answer.routing_reason.lower()
+
+
+def test_answer_query_scopes_both_rewrite_and_fallback(pipeline, pdf_path):
+    """The scope must survive the follow-up rewrite fallback path too."""
+    pipeline.ingest_document(pdf_path)
+    doc_id = pipeline.list_documents()[0]["id"]
+    # A follow-up question triggers a rewrite; the fake rewriter returns the same
+    # text, so retrieval falls back to the raw query - both calls must be scoped.
+    history = _history(("user", "What is the tenure?"), ("assistant", "20 years"))
+    pipeline.answer_query("And the rate?", chat_history=history, document_id=doc_id)
+    assert pipeline.retriever.scopes
+    assert all(scope == doc_id for scope in pipeline.retriever.scopes)
+
+
 def test_all_providers_failing_is_graceful(pipeline, pdf_path):
     pipeline.ingest_document(pdf_path)
     pipeline.llm_handler.fail = True
@@ -320,8 +363,9 @@ def _history(*pairs):
 class SelectiveRetriever(FakeRetriever):
     """Returns nothing for queries containing 'gibberish' (rewrite-miss tests)."""
 
-    def hybrid_retrieve(self, query):
+    def hybrid_retrieve(self, query, document_id=None):
         self.queries.append(query)
+        self.scopes.append(document_id)
         if "gibberish" in query:
             return []
         return list(self.documents)
