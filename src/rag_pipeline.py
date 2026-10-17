@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import statistics
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +69,83 @@ def _pages_digest(page_documents: Iterable[Document]) -> str:
     )
 
 
+def _chunk_char_stats(chunks: Iterable[Document]) -> tuple[float, float, int]:
+    """Char-length summary of a chunk batch: (mean, median, max)."""
+
+    lengths = [len(c.page_content or "") for c in chunks]
+    if not lengths:
+        return 0.0, 0.0, 0
+    return (
+        sum(lengths) / len(lengths),
+        float(statistics.median(lengths)),
+        max(lengths),
+    )
+
+
+def _build_default_chunker() -> Chunker:
+    """Build the ingest chunker from settings.
+
+    Token-aware sizing is opt-in: it measures pieces with the embedder's own
+    tokenizer so chunks are capped by the model's real window. The tokenizer is
+    resolved lazily (on first measure) by ``embedder.token_length``, so building
+    the chunker never loads a model.
+    """
+
+    if settings.CHUNK_TOKEN_AWARE:
+        from src.ingestion.embedder import token_length
+
+        return Chunker(
+            chunk_size=settings.CHUNK_MAX_TOKENS,
+            chunk_overlap=settings.CHUNK_OVERLAP_TOKENS,
+            length_fn=token_length,
+            target_size=settings.CHUNK_TARGET_TOKENS,
+            sentence_aware=settings.CHUNK_SENTENCE_AWARE,
+        )
+    return Chunker(sentence_aware=settings.CHUNK_SENTENCE_AWARE)
+
+
+def _context_prefix(chunk: Document) -> str:
+    """Short "title · page N" header describing where a chunk came from.
+
+    Uses the document title when the parser found one, else the filename stem.
+    Returns "" when there is nothing meaningful to add.
+    """
+    meta = chunk.metadata or {}
+    title = meta.get("doc_title")
+    if not title:
+        filename = meta.get("filename") or meta.get("source") or ""
+        title = Path(filename).stem if filename else ""
+    title = str(title).strip()
+    page = meta.get("page_number")
+    parts = [p for p in (title, f"page {page}" if page is not None else "") if p]
+    return " · ".join(parts)
+
+
+def _chunk_embed_texts(chunks: list[Document]) -> list[str]:
+    """Build the per-chunk strings that get embedded (header + clean text).
+
+    The header is also recorded in each chunk's metadata as ``context_prefix`` so
+    the UI can display it without it polluting the stored chunk text.
+    """
+    texts: list[str] = []
+    for chunk in chunks:
+        prefix = _context_prefix(chunk)
+        if prefix:
+            chunk.metadata = {**(chunk.metadata or {}), "context_prefix": prefix}
+            texts.append(f"{prefix}\n{chunk.page_content}")
+        else:
+            texts.append(chunk.page_content)
+    return texts
+
+
+def _embed_chunk_vectors(embedder, texts: list[str]):
+    """Embed raw strings, falling back to ``embed_documents`` for test doubles."""
+    fn = getattr(embedder, "embed_texts", None)
+    if fn is not None:
+        return fn(texts)
+    return embedder.embed_documents([Document(page_content=t) for t in texts])
+
+
 def _page_overcleaned(page: Document) -> bool:
     """True if cleaning removed most of a page's content.
 
@@ -105,6 +183,9 @@ class IngestionResult:
     pages_overcleaned: int = 0
     chunks_dropped_short: int = 0
     boilerplate_lines_removed: int = 0
+    chunks_mean_chars: float = 0.0
+    chunks_median_chars: float = 0.0
+    chunks_max_chars: int = 0
 
 
 @dataclass
@@ -134,7 +215,7 @@ class RAGPipeline:
         self.router = router
         self.llm_handler = llm_handler
         self.aggregator = aggregator or Aggregator(scrubber=scrubber)
-        self.chunker = chunker or Chunker()
+        self.chunker = chunker or _build_default_chunker()
         self.embedder = embedder or embedder_module
         # In-memory default: unit tests construct RAGPipeline directly and must
         # never write to the real chat database. The factory injects the shared store.
@@ -279,7 +360,14 @@ class RAGPipeline:
         if not chunks:
             raise ValueError(f"No usable chunks were produced from {filename}")
 
-        vectors = self.embedder.embed_documents(chunks)
+        chunks_mean_chars, chunks_median_chars, chunks_max_chars = _chunk_char_stats(chunks)
+
+        # Contextual headers (opt-in): embed "title · page N" + text while the
+        # stored chunk text stays clean for citations and the LLM.
+        if settings.CHUNK_CONTEXT_HEADER == "meta":
+            vectors = _embed_chunk_vectors(self.embedder, _chunk_embed_texts(chunks))
+        else:
+            vectors = self.embedder.embed_documents(chunks)
         if len(vectors) != len(chunks):
             raise RuntimeError(
                 f"Embedding mismatch: {len(chunks)} chunks, {len(vectors)} vectors"
@@ -321,12 +409,14 @@ class RAGPipeline:
         )
         logger.info(
             "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs "
-            "(+%d duplicate chunk(s) dropped, %d short chunk(s) dropped, "
-            "%d boilerplate line(s) removed)",
+            "(mean %.0f chars, max %d; +%d duplicate chunk(s) dropped, "
+            "%d short chunk(s) dropped, %d boilerplate line(s) removed)",
             filename,
             len(page_documents),
             len(chunks),
             duration,
+            chunks_mean_chars,
+            chunks_max_chars,
             dup_dropped,
             short_dropped,
             boilerplate_removed,
@@ -351,6 +441,9 @@ class RAGPipeline:
             pages_overcleaned=pages_overcleaned,
             chunks_dropped_short=short_dropped,
             boilerplate_lines_removed=boilerplate_removed,
+            chunks_mean_chars=chunks_mean_chars,
+            chunks_median_chars=chunks_median_chars,
+            chunks_max_chars=chunks_max_chars,
         )
 
     @staticmethod

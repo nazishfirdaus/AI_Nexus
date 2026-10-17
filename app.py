@@ -438,6 +438,9 @@ def ingest_documents(items: list[tuple[bytes, str]]) -> None:
         details = []
         if total_ocr:
             details.append(f"{total_ocr} OCR page(s)")
+        if total_chunks:
+            mean_chars = sum(r.chunks_mean_chars * r.chunks for r in results) / total_chunks
+            details.append(f"avg {mean_chars:.0f} chars/chunk")
         if total_boilerplate:
             details.append(f"{total_boilerplate} boilerplate line(s) removed")
         if total_short:

@@ -146,7 +146,7 @@ def _rows_to_documents(
         for i in range(0, len(lines), rows_per_page)
     ]
 
-    extra = {"sheet": sheet} if sheet else {}
+    extra = {"doc_type": "table", "sheet": sheet} if sheet else {"doc_type": "table"}
     extra.update(doc_meta or {})
     return [
         make_document(

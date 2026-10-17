@@ -147,6 +147,7 @@ def parse_docx(
             page_text,
             filename=path.name,
             page_number=page_number,
+            doc_type="docx",
             raw_chars=raw_chars,
             clean_chars=clean_chars,
             **doc_meta,

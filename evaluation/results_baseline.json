@@ -1,0 +1,2072 @@
+{
+  "summary": {
+    "items": 50,
+    "documents": 1,
+    "recall_at_k": 0.88,
+    "mrr_at_k": 0.735,
+    "topk_empty_rate": 0.0,
+    "no_context_rate": 0.0,
+    "pii_leak_rate": 0.0,
+    "answered_rate": 1.0,
+    "ingest_s": 656.16,
+    "chunks_total": 39,
+    "chunk_mean_chars": 338.4,
+    "chunk_max_chars": 399,
+    "median_e2e_s": 2.662,
+    "p95_e2e_s": 15.475
+  },
+  "documents": [
+    {
+      "filename": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "document_id": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "pages": 12,
+      "chunks": 39,
+      "chunk_mean_chars": 338.4,
+      "chunk_median_chars": 370.0,
+      "chunk_max_chars": 399,
+      "ingest_s": 630.46
+    }
+  ],
+  "rows": [
+    {
+      "id": "q001",
+      "category": "direct_fact_lookup",
+      "question": "What is the requested loan amount?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5"
+      ],
+      "topk_pages": [
+        1,
+        4,
+        5,
+        10
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        1
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "Loan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000\nRequested Loan Amount\n$320,000\nDown Payment\n$80,000\nProposed Interest Rate\n6.500%\n<PERSON>\n30 years\nProperty Type\nSingle-Family Residence\nNumber of Units\n1\n1.3 Application Identifier\nApplication ID: ANX-2026-0001\nApplication Date: 10 September 2026\nUnderwriting Status: Pending Final Decision",
+        "Phone: <PHONE_NUMBER>\nEmail: jonathan.carter@example.test\nSynthetic Data Notice: All names, addresses, contact information, account numbers, and financial figures in\nthis document are fictional and created exclusively for software testing.\n1.2 Loan Request\nField\nValue\nLoan Type\nConventional Fixed-Rate Mortgage\nLoan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the requested loan amount?' based on 2153 chars of context.",
+      "latency_s": 370.355,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        5,
+        1,
+        10,
+        4
+      ]
+    },
+    {
+      "id": "q002",
+      "category": "direct_fact_lookup",
+      "question": "What is the purchase price of the property?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        1,
+        5,
+        6,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        1,
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "Loan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000\nRequested Loan Amount\n$320,000\nDown Payment\n$80,000\nProposed Interest Rate\n6.500%\n<PERSON>\n30 years\nProperty Type\nSingle-Family Residence\nNumber of Units\n1\n1.3 Application Identifier\nApplication ID: ANX-2026-0001\nApplication Date: 10 September 2026\nUnderwriting Status: Pending Final Decision",
+        "Page 5\n5. PROPERTY INFORMATION\n5.1 Subject Property\nProperty Address: 1847 Willow <PERSON>, Austin, TX 78745\nProperty Type: Single-Family Residence\nYear Built: 2018\nLiving Area: 2,150 square feet\nBedrooms: 4\nBathrooms: 3\nOccupancy: <PERSON>\n5.2 Purchase Information\nContract Purchase Price: $400,000\nBorrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value",
+        "Page 6\n6. PROPERTY COMPARABLES\n6.1 Comparable Sales\nThe fictional appraisal contains the following comparable properties.\nComparable\nSale Price\nDistance\nSize\nComparable 1\n$405,000\n0.4 miles\n2,100 sq ft\nComparable 2\n$395,000\n0.7 miles\n2,180 sq ft\nComparable 3\n$415,000\n0.9 miles\n2,220 sq ft\nAverage comparable sale price:\n$405,000\nSubject property appraised value:\n$410,000",
+        "$405,000\nSubject property appraised value:\n$410,000\n6.2 Property Valuation Finding\nThe appraised value of $410,000 is considered reasonably supported by the supplied comparable sales.\nNo material property condition issue affecting value was identified in the fictional appraisal.\n6.3 Property Risk Flags\n\nNo flood-zone issue identified in the supplied report.\n"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the purchase price of the property?' based on 2030 chars of context.",
+      "latency_s": 22.709,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        11,
+        1,
+        5,
+        6
+      ]
+    },
+    {
+      "id": "q003",
+      "category": "direct_fact_lookup",
+      "question": "What is the borrower's annual base salary?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4"
+      ],
+      "topk_pages": [
+        2,
+        4,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        2
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "The borrower received the following documented annual bonuses:\nYear\nBonus\n2023\n$10,000\n2024\n$12,000\n2025\n$14,000\nThree-year average bonus: $12,000 per year\nMonthly qualifying bonus income: $1,000\n2.4 Qualifying Income\nIncome Component\nMonthly Amount\nBase Salary\n$10,000\nAverage Bonus\n$1,000\nOther Qualifying Income\n$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification",
+        "Page 2\n2. EMPLOYMENT AND INCOME\n2.1 Current Employment\nEmployer: Lone Star Technology Solutions, Inc.\nPosition: Senior Software Engineer\nEmployment Type: Full-Time\nEmployment Start Date: 7 June 2019\nEmployment Status: Active\n2.2 Base Compensation\nAnnual base salary: $120,000\nMonthly gross base income: $10,000\n2.3 Variable Compensation\nThe borrower received the following documented annual bonuses:",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's annual base salary?' based on 2153 chars of context.",
+      "latency_s": 9.557,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        2,
+        10,
+        11,
+        4
+      ]
+    },
+    {
+      "id": "q004",
+      "category": "direct_fact_lookup",
+      "question": "What is the borrower's gross monthly qualifying income?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3"
+      ],
+      "topk_pages": [
+        2,
+        3,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        2
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "The borrower received the following documented annual bonuses:\nYear\nBonus\n2023\n$10,000\n2024\n$12,000\n2025\n$14,000\nThree-year average bonus: $12,000 per year\nMonthly qualifying bonus income: $1,000\n2.4 Qualifying Income\nIncome Component\nMonthly Amount\nBase Salary\n$10,000\nAverage Bonus\n$1,000\nOther Qualifying Income\n$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification\nEmployment was verified through a fictional automated employment verification service on:\n10 September 2026\nVerification result:\nEmployment confirmed — active",
+        "Page 2\n2. EMPLOYMENT AND INCOME\n2.1 Current Employment\nEmployer: Lone Star Technology Solutions, Inc.\nPosition: Senior Software Engineer\nEmployment Type: Full-Time\nEmployment Start Date: 7 June 2019\nEmployment Status: Active\n2.2 Base Compensation\nAnnual base salary: $120,000\nMonthly gross base income: $10,000\n2.3 Variable Compensation\nThe borrower received the following documented annual bonuses:"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's gross monthly qualifying income?' based on 2013 chars of context.",
+      "latency_s": 3.21,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        2,
+        3,
+        10
+      ]
+    },
+    {
+      "id": "q005",
+      "category": "direct_fact_lookup",
+      "question": "What is the borrower's representative FICO score?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        3,
+        8,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        3
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n\nNo recent short sale identified.\n\nRepresentative FICO score is 760.\n\nRevolving credit utilization is reported at 18%.\n\nPayment history shows no 30-day late payments during the reviewed period.",
+        "Page 3\n3. CREDIT PROFILE\n3.1 Credit Score\nRepresentative FICO Score: 760\nThe credit report indicates a strong credit history with no reported bankruptcy, foreclosure, or short sale within\nthe underwriting review period.\n3.2 Monthly Liabilities\nLiability\nMonthly Payment\nAuto Loan\n$550\nStudent Loan\n$300\nCredit Card Minimum Payments\n$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's representative FICO score?' based on 2033 chars of context.",
+      "latency_s": 3.688,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        3,
+        8,
+        10
+      ]
+    },
+    {
+      "id": "q006",
+      "category": "direct_fact_lookup",
+      "question": "What is the borrower's calculated DTI?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3"
+      ],
+      "topk_pages": [
+        3,
+        10,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        3
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's calculated DTI?' based on 2108 chars of context.",
+      "latency_s": 2.926,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        11,
+        3,
+        10
+      ]
+    },
+    {
+      "id": "q007",
+      "category": "direct_fact_lookup",
+      "question": "What is the borrower's total reported asset balance?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4"
+      ],
+      "topk_pages": [
+        4,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        4
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "4.4 Reserve Calculation\nProposed total monthly housing obligation: $2,722\nRemaining liquid assets: $129,000\nApproximate reserves: 47.39 months"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's total reported asset balance?' based on 1912 chars of context.",
+      "latency_s": 2.815,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        4,
+        11,
+        10
+      ]
+    },
+    {
+      "id": "q008",
+      "category": "direct_fact_lookup",
+      "question": "How much cash is required to close?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7"
+      ],
+      "topk_pages": [
+        4,
+        7,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        4
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "7.3 Documentation Consistency\nThe supplied income documentation is consistent with the employment information.\nThe supplied asset documentation is consistent with the stated funds required for closing.\nThe credit report is consistent with the liabilities used in the DTI calculation.",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How much cash is required to close?' based on 2053 chars of context.",
+      "latency_s": 3.369,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        4,
+        11,
+        7,
+        10
+      ]
+    },
+    {
+      "id": "q009",
+      "category": "direct_fact_lookup",
+      "question": "What is the appraised value of the property?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.25,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        5,
+        6,
+        11
+      ],
+      "first_hit_rank": 4,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "$405,000\nSubject property appraised value:\n$410,000\n6.2 Property Valuation Finding\nThe appraised value of $410,000 is considered reasonably supported by the supplied comparable sales.\nNo material property condition issue affecting value was identified in the fictional appraisal.\n6.3 Property Risk Flags\n\nNo flood-zone issue identified in the supplied report.\n",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "Page 6\n6. PROPERTY COMPARABLES\n6.1 Comparable Sales\nThe fictional appraisal contains the following comparable properties.\nComparable\nSale Price\nDistance\nSize\nComparable 1\n$405,000\n0.4 miles\n2,100 sq ft\nComparable 2\n$395,000\n0.7 miles\n2,180 sq ft\nComparable 3\n$415,000\n0.9 miles\n2,220 sq ft\nAverage comparable sale price:\n$405,000\nSubject property appraised value:\n$410,000",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "Page 5\n5. PROPERTY INFORMATION\n5.1 Subject Property\nProperty Address: 1847 Willow <PERSON>, Austin, TX 78745\nProperty Type: Single-Family Residence\nYear Built: 2018\nLiving Area: 2,150 square feet\nBedrooms: 4\nBathrooms: 3\nOccupancy: <PERSON>\n5.2 Purchase Information\nContract Purchase Price: $400,000\nBorrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the appraised value of the property?' based on 2045 chars of context.",
+      "latency_s": 3.119,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        6,
+        11,
+        5
+      ]
+    },
+    {
+      "id": "q010",
+      "category": "direct_fact_lookup",
+      "question": "What is the calculated loan-to-value ratio?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5"
+      ],
+      "topk_pages": [
+        3,
+        5,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "purchase LTV calculation.\nValue used: $400,000\nLTV:\n$320,000 ÷ $400,000 × 100 = 80.00%\nCalculated LTV: 80.00%",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the calculated loan-to-value ratio?' based on 1797 chars of context.",
+      "latency_s": 3.439,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        5,
+        3,
+        11
+      ]
+    },
+    {
+      "id": "q011",
+      "category": "direct_fact_lookup",
+      "question": "What type of property is the borrower purchasing?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5"
+      ],
+      "topk_pages": [
+        1,
+        5,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Loan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000\nRequested Loan Amount\n$320,000\nDown Payment\n$80,000\nProposed Interest Rate\n6.500%\n<PERSON>\n30 years\nProperty Type\nSingle-Family Residence\nNumber of Units\n1\n1.3 Application Identifier\nApplication ID: ANX-2026-0001\nApplication Date: 10 September 2026\nUnderwriting Status: Pending Final Decision",
+        "Page 5\n5. PROPERTY INFORMATION\n5.1 Subject Property\nProperty Address: 1847 Willow <PERSON>, Austin, TX 78745\nProperty Type: Single-Family Residence\nYear Built: 2018\nLiving Area: 2,150 square feet\nBedrooms: 4\nBathrooms: 3\nOccupancy: <PERSON>\n5.2 Purchase Information\nContract Purchase Price: $400,000\nBorrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value",
+        "Page 1\nSynthetic Mortgage Underwriting Document\nDocument ID: ANX-MTG-0001\nDocument Type: Synthetic Mortgage Underwriting Case File\nStatus: Training / Testing Only\n<PERSON>: <PERSON>\nProperty: 1847 Willow <PERSON>, Austin, TX 78745\nLoan Purpose: <PERSON> Purchase\nAll information in this document is fictional.\n1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What type of property is the borrower purchasing?' based on 2137 chars of context.",
+      "latency_s": 1.916,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        1,
+        5,
+        11
+      ]
+    },
+    {
+      "id": "q012",
+      "category": "direct_fact_lookup",
+      "question": "What is the average comparable sale price?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        5,
+        6,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        6
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 6\n6. PROPERTY COMPARABLES\n6.1 Comparable Sales\nThe fictional appraisal contains the following comparable properties.\nComparable\nSale Price\nDistance\nSize\nComparable 1\n$405,000\n0.4 miles\n2,100 sq ft\nComparable 2\n$395,000\n0.7 miles\n2,180 sq ft\nComparable 3\n$415,000\n0.9 miles\n2,220 sq ft\nAverage comparable sale price:\n$405,000\nSubject property appraised value:\n$410,000",
+        "$405,000\nSubject property appraised value:\n$410,000\n6.2 Property Valuation Finding\nThe appraised value of $410,000 is considered reasonably supported by the supplied comparable sales.\nNo material property condition issue affecting value was identified in the fictional appraisal.\n6.3 Property Risk Flags\n\nNo flood-zone issue identified in the supplied report.\n",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the average comparable sale price?' based on 2034 chars of context.",
+      "latency_s": 1.93,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        6,
+        11,
+        10,
+        5
+      ]
+    },
+    {
+      "id": "q013",
+      "category": "direct_fact_lookup",
+      "question": "Are any critical underwriting documents currently identified as missing?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        7,
+        8,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        7
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Received\nBank Statements\nReceived\nBrokerage Statement\nReceived\nRetirement Account Statement\nReceived\nCredit Report\nReceived\nProperty Appraisal\nReceived\nPurchase Contract\nReceived\nHomeowners Insurance Quote\nReceived\n7.2 Missing Documents\nNo critical underwriting document is currently identified as missing.\n7.3 Documentation Consistency",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page."
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Are any critical underwriting documents currently identified as missing?' based on 2089 chars of context.",
+      "latency_s": 3.962,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        7,
+        10,
+        8
+      ]
+    },
+    {
+      "id": "q014",
+      "category": "direct_fact_lookup",
+      "question": "What is the minimum FICO score required under the synthetic qualification criteria?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the minimum FICO score required under the synthetic qualification criter' based on 2030 chars of context.",
+      "latency_s": 2.733,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        8,
+        10,
+        11
+      ]
+    },
+    {
+      "id": "q015",
+      "category": "direct_fact_lookup",
+      "question": "What is the expected underwriting decision?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        8,
+        9,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        10
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "disclosure requirements.\nFair Housing\nThe decision must be based on relevant financial, credit, property, and underwriting criteria.\nProtected characteristics must not be used as decision factors.\n9.2 Fair Lending Test\nThe following information must not influence the underwriting recommendation:\n\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the expected underwriting decision?' based on 2079 chars of context.",
+      "latency_s": 1.938,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        10,
+        9,
+        8
+      ]
+    },
+    {
+      "id": "q016",
+      "category": "definition_meaning",
+      "question": "According to the document, what does DTI represent in this underwriting case?",
+      "recall_at_k": 0.0,
+      "mrr_at_k": 0.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        1,
+        7,
+        8,
+        10
+      ],
+      "first_hit_rank": null,
+      "expected_pages": [
+        3
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "7.3 Documentation Consistency\nThe supplied income documentation is consistent with the employment information.\nThe supplied asset documentation is consistent with the stated funds required for closing.\nThe credit report is consistent with the liabilities used in the DTI calculation.",
+        "Page 1\nSynthetic Mortgage Underwriting Document\nDocument ID: ANX-MTG-0001\nDocument Type: Synthetic Mortgage Underwriting Case File\nStatus: Training / Testing Only\n<PERSON>: <PERSON>\nProperty: 1847 Willow <PERSON>, Austin, TX 78745\nLoan Purpose: <PERSON> Purchase\nAll information in this document is fictional.\n1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'According to the document, what does DTI represent in this underwriting case?' based on 1979 chars of context.",
+      "latency_s": 2.119,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        10,
+        8,
+        7,
+        1
+      ]
+    },
+    {
+      "id": "q017",
+      "category": "definition_meaning",
+      "question": "According to the document, what does LTV represent in this test case?",
+      "recall_at_k": 0.0,
+      "mrr_at_k": 0.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": null,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'According to the document, what does LTV represent in this test case?' based on 2033 chars of context.",
+      "latency_s": 1.935,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        11,
+        10,
+        8
+      ]
+    },
+    {
+      "id": "q018",
+      "category": "definition_meaning",
+      "question": "What is meant by the term 'representative FICO score' in the credit section?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        3,
+        8,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        3
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 3\n3. CREDIT PROFILE\n3.1 Credit Score\nRepresentative FICO Score: 760\nThe credit report indicates a strong credit history with no reported bankruptcy, foreclosure, or short sale within\nthe underwriting review period.\n3.2 Monthly Liabilities\nLiability\nMonthly Payment\nAuto Loan\n$550\nStudent Loan\n$300\nCredit Card Minimum Payments\n$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes",
+        "3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n\nNo recent short sale identified.\n\nRepresentative FICO score is 760.\n\nRevolving credit utilization is reported at 18%.\n\nPayment history shows no 30-day late payments during the reviewed period.",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page.",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is meant by the term 'representative FICO score' in the credit section?' based on 2054 chars of context.",
+      "latency_s": 2.518,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        3,
+        10,
+        8
+      ]
+    },
+    {
+      "id": "q019",
+      "category": "definition_meaning",
+      "question": "What does 'qualifying income' mean in the context of this document?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        2,
+        3,
+        7,
+        8
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        2
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "The borrower received the following documented annual bonuses:\nYear\nBonus\n2023\n$10,000\n2024\n$12,000\n2025\n$14,000\nThree-year average bonus: $12,000 per year\nMonthly qualifying bonus income: $1,000\n2.4 Qualifying Income\nIncome Component\nMonthly Amount\nBase Salary\n$10,000\nAverage Bonus\n$1,000\nOther Qualifying Income\n$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification",
+        "7.3 Documentation Consistency\nThe supplied income documentation is consistent with the employment information.\nThe supplied asset documentation is consistent with the stated funds required for closing.\nThe credit report is consistent with the liabilities used in the DTI calculation.",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Page 7\n7. DOCUMENT CHECKLIST\n7.1 Documents Received\nThe following documents were supplied for underwriting:\nDocument\nStatus\nUniform Residential Loan Application\nReceived\nGovernment-Issued Identification\nReceived\nTwo Years of W-2 Forms\nReceived\nTwo Years of Tax Returns\nReceived\nRecent Pay Stubs\nReceived\nEmployment Verification\nReceived\nBank Statements\nReceived\nBrokerage Statement\nReceived"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What does 'qualifying income' mean in the context of this document?' based on 2002 chars of context.",
+      "latency_s": 3.558,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        2,
+        7,
+        3,
+        8
+      ]
+    },
+    {
+      "id": "q020",
+      "category": "definition_meaning",
+      "question": "What does the document mean by 'required cash to close'?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7"
+      ],
+      "topk_pages": [
+        4,
+        7,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        4
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "7.3 Documentation Consistency\nThe supplied income documentation is consistent with the employment information.\nThe supplied asset documentation is consistent with the stated funds required for closing.\nThe credit report is consistent with the liabilities used in the DTI calculation.",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What does the document mean by 'required cash to close'?' based on 2089 chars of context.",
+      "latency_s": 2.218,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        4,
+        11,
+        7,
+        10
+      ]
+    },
+    {
+      "id": "q021",
+      "category": "definition_meaning",
+      "question": "What does 'primary residence' mean in the context of this mortgage application?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        1,
+        5,
+        6
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        1,
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 1\nSynthetic Mortgage Underwriting Document\nDocument ID: ANX-MTG-0001\nDocument Type: Synthetic Mortgage Underwriting Case File\nStatus: Training / Testing Only\n<PERSON>: <PERSON>\nProperty: 1847 Willow <PERSON>, Austin, TX 78745\nLoan Purpose: <PERSON> Purchase\nAll information in this document is fictional.\n1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information",
+        "Loan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000\nRequested Loan Amount\n$320,000\nDown Payment\n$80,000\nProposed Interest Rate\n6.500%\n<PERSON>\n30 years\nProperty Type\nSingle-Family Residence\nNumber of Units\n1\n1.3 Application Identifier\nApplication ID: ANX-2026-0001\nApplication Date: 10 September 2026\nUnderwriting Status: Pending Final Decision",
+        "\nNo flood-zone issue identified in the supplied report.\n\nNo major structural defect identified.\n\nNo unresolved safety issue identified.\n\nProperty is classified as a single-family residence.\n\nIntended occupancy is primary residence.",
+        "Phone: <PHONE_NUMBER>\nEmail: jonathan.carter@example.test\nSynthetic Data Notice: All names, addresses, contact information, account numbers, and financial figures in\nthis document are fictional and created exclusively for software testing.\n1.2 Loan Request\nField\nValue\nLoan Type\nConventional Fixed-Rate Mortgage\nLoan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000",
+        "Page 5\n5. PROPERTY INFORMATION\n5.1 Subject Property\nProperty Address: 1847 Willow <PERSON>, Austin, TX 78745\nProperty Type: Single-Family Residence\nYear Built: 2018\nLiving Area: 2,150 square feet\nBedrooms: 4\nBathrooms: 3\nOccupancy: <PERSON>\n5.2 Purchase Information\nContract Purchase Price: $400,000\nBorrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What does 'primary residence' mean in the context of this mortgage application?' based on 2006 chars of context.",
+      "latency_s": 3.283,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        1,
+        6,
+        5
+      ]
+    },
+    {
+      "id": "q022",
+      "category": "definition_meaning",
+      "question": "What is meant by a 'critical underwriting document' in this test case?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        7,
+        8,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        7,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Received\nBank Statements\nReceived\nBrokerage Statement\nReceived\nRetirement Account Statement\nReceived\nCredit Report\nReceived\nProperty Appraisal\nReceived\nPurchase Contract\nReceived\nHomeowners Insurance Quote\nReceived\n7.2 Missing Documents\nNo critical underwriting document is currently identified as missing.\n7.3 Documentation Consistency"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is meant by a 'critical underwriting document' in this test case?' based on 2038 chars of context.",
+      "latency_s": 2.007,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        8,
+        10,
+        7
+      ]
+    },
+    {
+      "id": "q023",
+      "category": "definition_meaning",
+      "question": "What is the purpose of the synthetic qualification criteria in this document?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        1,
+        8,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Page 1\nSynthetic Mortgage Underwriting Document\nDocument ID: ANX-MTG-0001\nDocument Type: Synthetic Mortgage Underwriting Case File\nStatus: Training / Testing Only\n<PERSON>: <PERSON>\nProperty: 1847 Willow <PERSON>, Austin, TX 78745\nLoan Purpose: <PERSON> Purchase\nAll information in this document is fictional.\n1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Phone: <PHONE_NUMBER>\nEmail: jonathan.carter@example.test\nSynthetic Data Notice: All names, addresses, contact information, account numbers, and financial figures in\nthis document are fictional and created exclusively for software testing.\n1.2 Loan Request\nField\nValue\nLoan Type\nConventional Fixed-Rate Mortgage\nLoan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the purpose of the synthetic qualification criteria in this document?' based on 2042 chars of context.",
+      "latency_s": 1.71,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        8,
+        1,
+        11
+      ]
+    },
+    {
+      "id": "q024",
+      "category": "multi_hop",
+      "question": "Does the borrower meet the minimum FICO requirement?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        3,
+        8,
+        10
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        3,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "Page 3\n3. CREDIT PROFILE\n3.1 Credit Score\nRepresentative FICO Score: 760\nThe credit report indicates a strong credit history with no reported bankruptcy, foreclosure, or short sale within\nthe underwriting review period.\n3.2 Monthly Liabilities\nLiability\nMonthly Payment\nAuto Loan\n$550\nStudent Loan\n$300\nCredit Card Minimum Payments\n$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Does the borrower meet the minimum FICO requirement?' based on 2146 chars of context.",
+      "latency_s": 1.944,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        10,
+        8,
+        3
+      ]
+    },
+    {
+      "id": "q025",
+      "category": "multi_hop",
+      "question": "Does the borrower's DTI satisfy the synthetic underwriting requirement?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        1,
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        3,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Page 1\nSynthetic Mortgage Underwriting Document\nDocument ID: ANX-MTG-0001\nDocument Type: Synthetic Mortgage Underwriting Case File\nStatus: Training / Testing Only\n<PERSON>: <PERSON>\nProperty: 1847 Willow <PERSON>, Austin, TX 78745\nLoan Purpose: <PERSON> Purchase\nAll information in this document is fictional.\n1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Does the borrower's DTI satisfy the synthetic underwriting requirement?' based on 2040 chars of context.",
+      "latency_s": 1.752,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        8,
+        10,
+        11,
+        1
+      ]
+    },
+    {
+      "id": "q026",
+      "category": "multi_hop",
+      "question": "Does the borrower meet the LTV requirement?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        5,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page."
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Does the borrower meet the LTV requirement?' based on 2093 chars of context.",
+      "latency_s": 1.521,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        10,
+        8,
+        11
+      ]
+    },
+    {
+      "id": "q027",
+      "category": "multi_hop",
+      "question": "Does the borrower have enough reserves to satisfy the synthetic requirement?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        4,
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        4,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Does the borrower have enough reserves to satisfy the synthetic requirement?' based on 2041 chars of context.",
+      "latency_s": 2.0,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        8,
+        11,
+        10,
+        4
+      ]
+    },
+    {
+      "id": "q028",
+      "category": "multi_hop",
+      "question": "Why is the purchase-price value rather than the appraised value used to calculate the standard purchase LTV?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5"
+      ],
+      "topk_pages": [
+        5,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        5,
+        11
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "purchase LTV calculation.\nValue used: $400,000\nLTV:\n$320,000 ÷ $400,000 × 100 = 80.00%\nCalculated LTV: 80.00%",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Why is the purchase-price value rather than the appraised value used to calculat' based on 1756 chars of context.",
+      "latency_s": 3.308,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        11,
+        5,
+        10
+      ]
+    },
+    {
+      "id": "q029",
+      "category": "multi_hop",
+      "question": "Why is the expected decision an approval?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        8,
+        9,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        8,
+        10
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page.",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "2. Preserve supporting evidence.\n3. Avoid unsupported explanations.\n4. Generate an appropriate adverse-action reason.\n5. Avoid using protected characteristics as a reason for the decision.",
+        "disclosure requirements.\nFair Housing\nThe decision must be based on relevant financial, credit, property, and underwriting criteria.\nProtected characteristics must not be used as decision factors.\n9.2 Fair Lending Test\nThe following information must not influence the underwriting recommendation:\n\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Why is the expected decision an approval?' based on 1880 chars of context.",
+      "latency_s": 2.502,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        10,
+        8,
+        9
+      ]
+    },
+    {
+      "id": "q030",
+      "category": "multi_hop",
+      "question": "How much liquid money does the borrower have remaining after estimated closing requirements?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4"
+      ],
+      "topk_pages": [
+        4,
+        10,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        4
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "4.4 Reserve Calculation\nProposed total monthly housing obligation: $2,722\nRemaining liquid assets: $129,000\nApproximate reserves: 47.39 months"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How much liquid money does the borrower have remaining after estimated closing r' based on 1912 chars of context.",
+      "latency_s": 1.72,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        11,
+        4,
+        10
+      ]
+    },
+    {
+      "id": "q031",
+      "category": "multi_hop",
+      "question": "What is the margin between the borrower's DTI and the maximum permitted DTI?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        3,
+        8,
+        11
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the margin between the borrower's DTI and the maximum permitted DTI?' based on 2115 chars of context.",
+      "latency_s": 2.696,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        11,
+        10,
+        8
+      ]
+    },
+    {
+      "id": "q032",
+      "category": "comparison",
+      "question": "How does the appraised value compare with the contract purchase price?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        5,
+        6,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "Page 5\n5. PROPERTY INFORMATION\n5.1 Subject Property\nProperty Address: 1847 Willow <PERSON>, Austin, TX 78745\nProperty Type: Single-Family Residence\nYear Built: 2018\nLiving Area: 2,150 square feet\nBedrooms: 4\nBathrooms: 3\nOccupancy: <PERSON>\n5.2 Purchase Information\nContract Purchase Price: $400,000\nBorrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value",
+        "Page 6\n6. PROPERTY COMPARABLES\n6.1 Comparable Sales\nThe fictional appraisal contains the following comparable properties.\nComparable\nSale Price\nDistance\nSize\nComparable 1\n$405,000\n0.4 miles\n2,100 sq ft\nComparable 2\n$395,000\n0.7 miles\n2,180 sq ft\nComparable 3\n$415,000\n0.9 miles\n2,220 sq ft\nAverage comparable sale price:\n$405,000\nSubject property appraised value:\n$410,000",
+        "$405,000\nSubject property appraised value:\n$410,000\n6.2 Property Valuation Finding\nThe appraised value of $410,000 is considered reasonably supported by the supplied comparable sales.\nNo material property condition issue affecting value was identified in the fictional appraisal.\n6.3 Property Risk Flags\n\nNo flood-zone issue identified in the supplied report.\n"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How does the appraised value compare with the contract purchase price?' based on 2045 chars of context.",
+      "latency_s": 1.759,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        11,
+        5,
+        6
+      ]
+    },
+    {
+      "id": "q033",
+      "category": "comparison",
+      "question": "How does the borrower's FICO score compare with the minimum requirement?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        3,
+        8,
+        10
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        3,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 3\n3. CREDIT PROFILE\n3.1 Credit Score\nRepresentative FICO Score: 760\nThe credit report indicates a strong credit history with no reported bankruptcy, foreclosure, or short sale within\nthe underwriting review period.\n3.2 Monthly Liabilities\nLiability\nMonthly Payment\nAuto Loan\n$550\nStudent Loan\n$300\nCredit Card Minimum Payments\n$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page.",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How does the borrower's FICO score compare with the minimum requirement?' based on 2167 chars of context.",
+      "latency_s": 1.616,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        10,
+        8,
+        3
+      ]
+    },
+    {
+      "id": "q034",
+      "category": "comparison",
+      "question": "How does the borrower's DTI compare with the maximum permitted DTI?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        3,
+        8,
+        11
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How does the borrower's DTI compare with the maximum permitted DTI?' based on 2115 chars of context.",
+      "latency_s": 1.503,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        11,
+        10,
+        8
+      ]
+    },
+    {
+      "id": "q035",
+      "category": "comparison",
+      "question": "How do the borrower's reserves compare with the minimum reserve requirement?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        4,
+        8,
+        10
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        4,
+        8
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation",
+        "4.4 Reserve Calculation\nProposed total monthly housing obligation: $2,722\nRemaining liquid assets: $129,000\nApproximate reserves: 47.39 months"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How do the borrower's reserves compare with the minimum reserve requirement?' based on 1914 chars of context.",
+      "latency_s": 2.19,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        10,
+        8,
+        4
+      ]
+    },
+    {
+      "id": "q036",
+      "category": "comparison",
+      "question": "How does the average comparable sale price compare with the subject property's appraised value?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        5,
+        6,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        5,
+        6
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 6\n6. PROPERTY COMPARABLES\n6.1 Comparable Sales\nThe fictional appraisal contains the following comparable properties.\nComparable\nSale Price\nDistance\nSize\nComparable 1\n$405,000\n0.4 miles\n2,100 sq ft\nComparable 2\n$395,000\n0.7 miles\n2,180 sq ft\nComparable 3\n$415,000\n0.9 miles\n2,220 sq ft\nAverage comparable sale price:\n$405,000\nSubject property appraised value:\n$410,000",
+        "$405,000\nSubject property appraised value:\n$410,000\n6.2 Property Valuation Finding\nThe appraised value of $410,000 is considered reasonably supported by the supplied comparable sales.\nNo material property condition issue affecting value was identified in the fictional appraisal.\n6.3 Property Risk Flags\n\nNo flood-zone issue identified in the supplied report.\n",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "Page 5\n5. PROPERTY INFORMATION\n5.1 Subject Property\nProperty Address: 1847 Willow <PERSON>, Austin, TX 78745\nProperty Type: Single-Family Residence\nYear Built: 2018\nLiving Area: 2,150 square feet\nBedrooms: 4\nBathrooms: 3\nOccupancy: <PERSON>\n5.2 Purchase Information\nContract Purchase Price: $400,000\nBorrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How does the average comparable sale price compare with the subject property's a' based on 2045 chars of context.",
+      "latency_s": 1.431,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        6,
+        11,
+        5
+      ]
+    },
+    {
+      "id": "q037",
+      "category": "comparison",
+      "question": "Which is greater: the borrower's total reported assets or the estimated cash required to close, and by how much?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7"
+      ],
+      "topk_pages": [
+        4,
+        7,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        4
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Requirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500\nPrepaid Taxes and Insurance\n$3,500\nRequired Cash to Close\n$93,000\n4.3 Remaining Liquid Assets\nTotal reported assets:\n$222,000\nEstimated cash required to close:\n$93,000\nRemaining assets:\n$129,000\nThe borrower therefore demonstrates sufficient documented assets for the stated cash-to-close requirement.\n4.4 Reserve Calculation",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "7.3 Documentation Consistency\nThe supplied income documentation is consistent with the employment information.\nThe supplied asset documentation is consistent with the stated funds required for closing.\nThe credit report is consistent with the liabilities used in the DTI calculation.",
+        "4.4 Reserve Calculation\nProposed total monthly housing obligation: $2,722\nRemaining liquid assets: $129,000\nApproximate reserves: 47.39 months"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Which is greater: the borrower's total reported assets or the estimated cash req' based on 1848 chars of context.",
+      "latency_s": 2.333,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        4,
+        11,
+        7
+      ]
+    },
+    {
+      "id": "q038",
+      "category": "numerical_financial",
+      "question": "How is the borrower's DTI of 35.65% calculated?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        3,
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        3
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How is the borrower's DTI of 35.65% calculated?' based on 2077 chars of context.",
+      "latency_s": 2.049,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        11,
+        3,
+        8,
+        10
+      ]
+    },
+    {
+      "id": "q039",
+      "category": "numerical_financial",
+      "question": "How is the 80.00% LTV calculated?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        5,
+        8,
+        10,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "purchase LTV calculation.\nValue used: $400,000\nLTV:\n$320,000 ÷ $400,000 × 100 = 80.00%\nCalculated LTV: 80.00%",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page.",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How is the 80.00% LTV calculated?' based on 1724 chars of context.",
+      "latency_s": 3.559,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        5,
+        11,
+        10,
+        8
+      ]
+    },
+    {
+      "id": "q040",
+      "category": "numerical_financial",
+      "question": "What is the difference between the appraised value and the purchase price?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#6"
+      ],
+      "topk_pages": [
+        5,
+        6,
+        10,
+        11
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        5
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard",
+        "$405,000\nSubject property appraised value:\n$410,000\n6.2 Property Valuation Finding\nThe appraised value of $410,000 is considered reasonably supported by the supplied comparable sales.\nNo material property condition issue affecting value was identified in the fictional appraisal.\n6.3 Property Risk Flags\n\nNo flood-zone issue identified in the supplied report.\n",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "Page 6\n6. PROPERTY COMPARABLES\n6.1 Comparable Sales\nThe fictional appraisal contains the following comparable properties.\nComparable\nSale Price\nDistance\nSize\nComparable 1\n$405,000\n0.4 miles\n2,100 sq ft\nComparable 2\n$395,000\n0.7 miles\n2,180 sq ft\nComparable 3\n$415,000\n0.9 miles\n2,220 sq ft\nAverage comparable sale price:\n$405,000\nSubject property appraised value:\n$410,000"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the difference between the appraised value and the purchase price?' based on 2013 chars of context.",
+      "latency_s": 4.11,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        11,
+        5,
+        6,
+        10
+      ]
+    },
+    {
+      "id": "q041",
+      "category": "numerical_financial",
+      "question": "How many months of reserves does the borrower have according to the document?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 0.5,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        4,
+        8,
+        10
+      ],
+      "first_hit_rank": 2,
+      "expected_pages": [
+        4
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment",
+        "4.4 Reserve Calculation\nProposed total monthly housing obligation: $2,722\nRemaining liquid assets: $129,000\nApproximate reserves: 47.39 months",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page.",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'How many months of reserves does the borrower have according to the document?' based on 1865 chars of context.",
+      "latency_s": 3.515,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        8,
+        4,
+        10
+      ]
+    },
+    {
+      "id": "q042",
+      "category": "numerical_financial",
+      "question": "What is the borrower's monthly bonus income used for qualifying income?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3"
+      ],
+      "topk_pages": [
+        2,
+        3,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        2
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "The borrower received the following documented annual bonuses:\nYear\nBonus\n2023\n$10,000\n2024\n$12,000\n2025\n$14,000\nThree-year average bonus: $12,000 per year\nMonthly qualifying bonus income: $1,000\n2.4 Qualifying Income\nIncome Component\nMonthly Amount\nBase Salary\n$10,000\nAverage Bonus\n$1,000\nOther Qualifying Income\n$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "Page 2\n2. EMPLOYMENT AND INCOME\n2.1 Current Employment\nEmployer: Lone Star Technology Solutions, Inc.\nPosition: Senior Software Engineer\nEmployment Type: Full-Time\nEmployment Start Date: 7 June 2019\nEmployment Status: Active\n2.2 Base Compensation\nAnnual base salary: $120,000\nMonthly gross base income: $10,000\n2.3 Variable Compensation\nThe borrower received the following documented annual bonuses:",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification\nEmployment was verified through a fictional automated employment verification service on:\n10 September 2026\nVerification result:\nEmployment confirmed — active"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's monthly bonus income used for qualifying income?' based on 2013 chars of context.",
+      "latency_s": 3.684,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        2,
+        3,
+        10
+      ]
+    },
+    {
+      "id": "q043",
+      "category": "negative_unknown",
+      "question": "What is the spouse's monthly income?",
+      "recall_at_k": 0.0,
+      "mrr_at_k": 0.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#3"
+      ],
+      "topk_pages": [
+        2,
+        3,
+        10
+      ],
+      "first_hit_rank": null,
+      "expected_pages": [],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification\nEmployment was verified through a fictional automated employment verification service on:\n10 September 2026\nVerification result:\nEmployment confirmed — active",
+        "The borrower received the following documented annual bonuses:\nYear\nBonus\n2023\n$10,000\n2024\n$12,000\n2025\n$14,000\nThree-year average bonus: $12,000 per year\nMonthly qualifying bonus income: $1,000\n2.4 Qualifying Income\nIncome Component\nMonthly Amount\nBase Salary\n$10,000\nAverage Bonus\n$1,000\nOther Qualifying Income\n$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification",
+        "$150\nPersonal Loan\n$200\nProposed Mortgage P&I\n$2,022\nProperty Taxes\n$450\nHomeowners Insurance\n$150\nHOA\n$100\nTotal Monthly Obligations\n$3,922\n3.3 Debt-to-Income Calculation\nGross monthly qualifying income:\n$11,000\nTotal monthly obligations:\n$3,922\nDTI:\n$3,922 ÷ $11,000 × 100 = 35.65%\nCalculated DTI: 35.65%\n3.4 Credit Findings\n\nNo bankruptcy identified.\n\nNo foreclosure identified.\n",
+        "Page 10\n10. DECISION AGENT TEST INPUT\n10.1 Consolidated Risk Profile\n<PERSON>: <PERSON>, Gross Monthly Income: $11,000, Monthly Debt Obligations: $3,922,\nDTI: 35.65%, FICO: 760, Purchase Price: $400,000, Appraised Value: $410,000, Loan Amount: $320,000,\nLTV: 80.00%, Liquid Assets After Closing: $129,000, Reserves: 47.39 months, Critical Missing",
+        "Page 2\n2. EMPLOYMENT AND INCOME\n2.1 Current Employment\nEmployer: Lone Star Technology Solutions, Inc.\nPosition: Senior Software Engineer\nEmployment Type: Full-Time\nEmployment Start Date: 7 June 2019\nEmployment Status: Active\n2.2 Base Compensation\nAnnual base salary: $120,000\nMonthly gross base income: $10,000\n2.3 Variable Compensation\nThe borrower received the following documented annual bonuses:"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the spouse's monthly income?' based on 2013 chars of context.",
+      "latency_s": 2.628,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        2,
+        3,
+        10
+      ]
+    },
+    {
+      "id": "q044",
+      "category": "negative_unknown",
+      "question": "What is the borrower's bank account number?",
+      "recall_at_k": 0.0,
+      "mrr_at_k": 0.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#4",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#5"
+      ],
+      "topk_pages": [
+        1,
+        4,
+        5,
+        11
+      ],
+      "first_hit_rank": null,
+      "expected_pages": [],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 4\n4. ASSETS AND RESERVES\n4.1 Verified Assets\nThe borrower provided statements for the following fictional accounts.\nAsset\nVerified Balance\nChecking Account\n$38,500\nSavings Account\n$52,000\nBrokerage Account\n$46,500\nRetirement Account\n$85,000\nTotal Reported Assets\n$222,000\n4.2 Funds Required for Closing\nRequirement\nAmount\nDown Payment\n$80,000\nEstimated Closing Costs\n$9,500",
+        "1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information\nPrimary Borrower: <PERSON>\nDate of Birth: 14 March 1988\nMarital Status: Married\nDependents: 2\nCitizenship: U.S. Citizen\nCurrent Address: 1847 Willow <PERSON>, Austin, TX 78745\nPhone: <PHONE_NUMBER>\nEmail: jonathan.carter@example.test",
+        "Phone: <PHONE_NUMBER>\nEmail: jonathan.carter@example.test\nSynthetic Data Notice: All names, addresses, contact information, account numbers, and financial figures in\nthis document are fictional and created exclusively for software testing.\n1.2 Loan Request\nField\nValue\nLoan Type\nConventional Fixed-Rate Mortgage\nLoan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Borrower Down Payment: $80,000\nRequested Mortgage: $320,000\n5.3 Appraised Value\nThe fictional appraisal reports:\nAppraised Value: $410,000\nThe appraised value exceeds the contract purchase price by: $10,000\n5.4 Loan-to-Value Calculation\nRequested loan amount: $320,000\nFor this test case, the underwriting system uses the lower of purchase price or appraised value for the standard"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What is the borrower's bank account number?' based on 2079 chars of context.",
+      "latency_s": 3.648,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        4,
+        1,
+        11,
+        5
+      ]
+    },
+    {
+      "id": "q045",
+      "category": "negative_unknown",
+      "question": "What religion does the borrower practice?",
+      "recall_at_k": 0.0,
+      "mrr_at_k": 0.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        1,
+        8,
+        9,
+        10
+      ],
+      "first_hit_rank": null,
+      "expected_pages": [],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "disclosure requirements.\nFair Housing\nThe decision must be based on relevant financial, credit, property, and underwriting criteria.\nProtected characteristics must not be used as decision factors.\n9.2 Fair Lending Test\nThe following information must not influence the underwriting recommendation:\n\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability",
+        "1. LOAN APPLICATION SUMMARY\n1.1 Borrower Information\nPrimary Borrower: <PERSON>\nDate of Birth: 14 March 1988\nMarital Status: Married\nDependents: 2\nCitizenship: U.S. Citizen\nCurrent Address: 1847 Willow <PERSON>, Austin, TX 78745\nPhone: <PHONE_NUMBER>\nEmail: jonathan.carter@example.test",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability\nThe fictional underwriting engine must base the recommendation on documented qualification criteria.\n9.3 Adverse Action Scenario\nIf a future test case fails one or more qualification criteria, the system should:\n1. Identify the failed criterion.\n2. Preserve supporting evidence.\n3. Avoid unsupported explanations.",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What religion does the borrower practice?' based on 2004 chars of context.",
+      "latency_s": 2.051,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        9,
+        1,
+        8,
+        10
+      ]
+    },
+    {
+      "id": "q046",
+      "category": "negative_unknown",
+      "question": "Was the borrower unemployed at any point during 2025?",
+      "recall_at_k": 0.0,
+      "mrr_at_k": 0.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#1",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#2",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8"
+      ],
+      "topk_pages": [
+        1,
+        2,
+        8,
+        11
+      ],
+      "first_hit_rank": null,
+      "expected_pages": [],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "The borrower received the following documented annual bonuses:\nYear\nBonus\n2023\n$10,000\n2024\n$12,000\n2025\n$14,000\nThree-year average bonus: $12,000 per year\nMonthly qualifying bonus income: $1,000\n2.4 Qualifying Income\nIncome Component\nMonthly Amount\nBase Salary\n$10,000\nAverage Bonus\n$1,000\nOther Qualifying Income\n$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification",
+        "$0\nTotal Gross Monthly Income\n$11,000\n2.5 Employment Verification\nEmployment was verified through a fictional automated employment verification service on:\n10 September 2026\nVerification result:\nEmployment confirmed — active",
+        "11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%\nDTI therefore passes with a margin of: 7.35 percentage points\n11.3 Asset Boundary\nRequired cash to close:\n$93,000\nRemaining liquid assets:\n$129,000\nThe borrower retains sufficient funds after estimated closing requirements.\n11.4 Potentially Confusing Values\nThe property has two relevant values:",
+        "Loan Purpose\nPurchase\nOccupancy\nPrimary Residence\nPurchase Price\n$400,000\nRequested Loan Amount\n$320,000\nDown Payment\n$80,000\nProposed Interest Rate\n6.500%\n<PERSON>\n30 years\nProperty Type\nSingle-Family Residence\nNumber of Units\n1\n1.3 Application Identifier\nApplication ID: ANX-2026-0001\nApplication Date: 10 September 2026\nUnderwriting Status: Pending Final Decision",
+        "Not permitted\nForeclosure in Review Period\nNot permitted\n8.2 Borrower Comparison\nCriterion\nBorrower\nRequirement\nResult\nFICO\n760\n≥ 700\nPass\nDTI\n35.65%\n≤ 43%\nPass\nLTV\n80.00%\n≤ 80%\nPass\nReserves\n47.39 months\n<PERSON> 6 months\nPass\nCritical Missing Documents\n0\n0\nPass\nBankruptcy\nNone\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Was the borrower unemployed at any point during 2025?' based on 1971 chars of context.",
+      "latency_s": 2.382,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        2,
+        11,
+        1,
+        8
+      ]
+    },
+    {
+      "id": "q047",
+      "category": "compliance_sensitive",
+      "question": "Which protected characteristics must not influence the underwriting recommendation?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        8,
+        9
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        9
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "disclosure requirements.\nFair Housing\nThe decision must be based on relevant financial, credit, property, and underwriting criteria.\nProtected characteristics must not be used as decision factors.\n9.2 Fair Lending Test\nThe following information must not influence the underwriting recommendation:\n\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability",
+        "\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability\nThe fictional underwriting engine must base the recommendation on documented qualification criteria.\n9.3 Adverse Action Scenario\nIf a future test case fails one or more qualification criteria, the system should:\n1. Identify the failed criterion.\n2. Preserve supporting evidence.\n3. Avoid unsupported explanations.",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "2. Preserve supporting evidence.\n3. Avoid unsupported explanations.\n4. Generate an appropriate adverse-action reason.\n5. Avoid using protected characteristics as a reason for the decision."
+      ],
+      "answer_text": "[SIMULATED] Answer to 'Which protected characteristics must not influence the underwriting recommendati' based on 1910 chars of context.",
+      "latency_s": 5.377,
+      "provider": "simulated",
+      "intent": "lookup",
+      "citations": [
+        9,
+        8
+      ]
+    },
+    {
+      "id": "q048",
+      "category": "compliance_sensitive",
+      "question": "What does the document say about the use of protected characteristics in the loan decision?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#7",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        7,
+        8,
+        9,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        9
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "disclosure requirements.\nFair Housing\nThe decision must be based on relevant financial, credit, property, and underwriting criteria.\nProtected characteristics must not be used as decision factors.\n9.2 Fair Lending Test\nThe following information must not influence the underwriting recommendation:\n\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability",
+        "2. Preserve supporting evidence.\n3. Avoid unsupported explanations.\n4. Generate an appropriate adverse-action reason.\n5. Avoid using protected characteristics as a reason for the decision.",
+        "Documents: 0, Bankruptcy: None, Foreclosure: None\n10.2 Expected Decision\nDecision: APPROVE\nRisk Level: LOW\n10.3 Expected Decision Reasoning\nThe fictional borrower meets all defined test-case underwriting thresholds:\n\nFICO exceeds the minimum requirement.\n\nDTI is below the maximum permitted threshold.\n\nLTV is at the maximum permitted standard threshold but does not exceed it.\n",
+        "Page 7\n7. DOCUMENT CHECKLIST\n7.1 Documents Received\nThe following documents were supplied for underwriting:\nDocument\nStatus\nUniform Residential Loan Application\nReceived\nGovernment-Issued Identification\nReceived\nTwo Years of W-2 Forms\nReceived\nTwo Years of Tax Returns\nReceived\nRecent Pay Stubs\nReceived\nEmployment Verification\nReceived\nBank Statements\nReceived\nBrokerage Statement\nReceived",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation."
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What does the document say about the use of protected characteristics in the loa' based on 1902 chars of context.",
+      "latency_s": 2.85,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        9,
+        10,
+        7,
+        8
+      ]
+    },
+    {
+      "id": "q049",
+      "category": "compliance_sensitive",
+      "question": "What should the system do if a future test case fails one or more qualification criteria?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#11",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        8,
+        9,
+        11
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        9
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "\nRace\n\nColor\n\nReligion\n\nSex\n\nNational origin\n\nFamilial status\n\nDisability\nThe fictional underwriting engine must base the recommendation on documented qualification criteria.\n9.3 Adverse Action Scenario\nIf a future test case fails one or more qualification criteria, the system should:\n1. Identify the failed criterion.\n2. Preserve supporting evidence.\n3. Avoid unsupported explanations.",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "Page 11\n11. SYNTHETIC EDGE-CASE DATA\nThis section exists specifically to test retrieval and reasoning.\n11.1 Boundary Conditions\nThe loan has:\nLTV = 80.00%\nTherefore:\n\nLTV is not above the 80% limit.\n\nLTV should be treated as passing under the supplied test criteria.\n11.2 DTI Boundary\nThe maximum permitted DTI is: 43%\nBorrower's DTI: 35.65%",
+        "11.4 Potentially Confusing Values\nThe property has two relevant values:\nContract Purchase Price: $400,000\nAppraised Value: $410,000\nFor this test case's standard purchase LTV calculation, the system uses the lower value of $400,000.\nTherefore:\n$320,000 / $400,000 = 80.00%"
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What should the system do if a future test case fails one or more qualification ' based on 1962 chars of context.",
+      "latency_s": 3.195,
+      "provider": "simulated",
+      "intent": "general",
+      "citations": [
+        9,
+        8,
+        11
+      ]
+    },
+    {
+      "id": "q050",
+      "category": "compliance_sensitive",
+      "question": "What regulatory areas are identified for compliance review in this test case?",
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "topk_refs": [
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#10",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#8",
+        "Synthetic_Mortgage_Loan_File_TEST.pdf#9"
+      ],
+      "topk_pages": [
+        8,
+        9,
+        10
+      ],
+      "first_hit_rank": 1,
+      "expected_pages": [
+        9
+      ],
+      "expected_doc": "Synthetic_Mortgage_Loan_File_TEST.pdf",
+      "source_snippets": [
+        "Page 9\n9. REGULATORY AND COMPLIANCE TEST DATA\n9.1 Compliance Review\nThe fictional compliance process checks the following areas:\n<PERSON>\nThe underwriting workflow must preserve required disclosures and must not introduce prohibited settlementservice practices.\nTILA\nThe system must ensure that applicable loan terms, costs, and disclosures are handled according to applicable\ndisclosure requirements.",
+        "Page 8\n8. UNDERWRITING GUIDELINES\n8.1 Synthetic Qualification Criteria\nFor this test case, the underwriting engine should evaluate the following fictional criteria.\nCriterion\nTest Threshold\nMinimum FICO\n700\nMaximum DTI\n43%\nMaximum Standard LTV\n80%\nMinimum Reserves\n6 months\nCritical Missing Documents\n0\nBankruptcy in Review Period\nNot permitted\nForeclosure in Review Period\nNot permitted",
+        "None\nNone\nPass\nForeclosure\nNone\nNone\nPass\n8.3 Initial Underwriting Assessment\nBased solely on the synthetic information supplied in this case file:\nThe borrower satisfies all defined test-case qualification criteria.\nThe case is therefore suitable for testing an Approve recommendation.",
+        "\nLTV is at the maximum permitted standard threshold but does not exceed it.\n\nDocumented reserves substantially exceed the minimum requirement.\n\nNo critical underwriting document is missing.\n\nNo bankruptcy or foreclosure is identified in the review period.\n\nProperty valuation is supported by the supplied comparable sales.\n10.4 Decision-Agent Output Requirements",
+        "10.4 Decision-Agent Output Requirements\nA compliant Decision Agent should return:\nDecision: Approve\nRisk Level: Low\nKey Factors:\n1. FICO = 760.\n2. DTI = 35.65%.\n3. LTV = 80.00%.\n4. Reserves = 47.39 months.\n5. No critical missing documents.\n6. No bankruptcy or foreclosure identified.\nEvidence: Every material conclusion must reference the corresponding document page."
+      ],
+      "answer_text": "[SIMULATED] Answer to 'What regulatory areas are identified for compliance review in this test case?' based on 2088 chars of context.",
+      "latency_s": 2.816,
+      "provider": "simulated",
+      "intent": "analysis",
+      "citations": [
+        9,
+        8,
+        10
+      ]
+    }
+  ]
+}

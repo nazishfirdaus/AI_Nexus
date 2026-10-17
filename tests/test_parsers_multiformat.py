@@ -19,7 +19,7 @@ from src.ingestion.parsers.common import (
 )
 from src.ingestion.parsers.image import parse_image
 
-METADATA_KEYS = {"document_id", "filename", "page_number", "source", "ocr_used"}
+METADATA_KEYS = {"document_id", "filename", "page_number", "source", "ocr_used", "doc_type"}
 
 
 def _assert_standard_schema(documents):
@@ -64,6 +64,7 @@ def test_parse_text_sections(tmp_path, suffix):
 
     _assert_standard_schema(documents)
     assert documents[0].metadata["document_id"] == f"notes{suffix}"
+    assert documents[0].metadata["doc_type"] == "text"
     assert "Interest rate is 7.25" in documents[0].page_content
 
 
@@ -157,6 +158,7 @@ def test_parse_csv_rows_rendered_as_header_value(tmp_path):
         "City: Mumbai | Rate: 7.25\nCity: Delhi | Rate: 7.40"
     )
     assert "sheet" not in documents[0].metadata
+    assert documents[0].metadata["doc_type"] == "table"
 
 
 def test_parse_csv_groups_rows_into_pages(tmp_path):
@@ -217,6 +219,7 @@ def test_parse_pptx_one_page_per_slide(tmp_path):
     assert "Overview" in documents[0].page_content
     assert "Fees" in documents[1].page_content
     assert documents[1].metadata["page_number"] == 2
+    assert documents[0].metadata["doc_type"] == "pptx"
 
 
 def test_parse_pptx_no_text_raises(tmp_path):
@@ -246,6 +249,7 @@ def test_parse_docx_extracts_core_properties(tmp_path):
 
     assert documents[0].metadata["doc_title"] == "Loan Agreement"
     assert documents[0].metadata["doc_author"] == "ANexus"
+    assert documents[0].metadata["doc_type"] == "docx"
 
 
 def test_parse_xlsx_extracts_workbook_properties(tmp_path):
@@ -301,6 +305,7 @@ def test_parse_pdf_extracts_document_properties(tmp_path):
 
     assert documents[0].metadata["doc_title"] == "Mortgage File"
     assert documents[0].metadata["doc_author"] == "ANexus"
+    assert documents[0].metadata["doc_type"] == "pdf"
 
 
 def test_page_metadata_records_cleaning_stats(tmp_path):
@@ -337,6 +342,7 @@ def test_parse_image_ocr(tmp_path):
     assert len(documents) == 1
     assert documents[0].metadata["ocr_used"] is True
     assert documents[0].metadata["page_number"] == 1
+    assert documents[0].metadata["doc_type"] == "image"
     assert "1234567890" in documents[0].page_content
 
 

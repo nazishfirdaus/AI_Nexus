@@ -18,7 +18,6 @@ if TYPE_CHECKING:  # avoids importing Chroma/the embedder just to import this mo
 
 logger = logging.getLogger(__name__)
 
-RRF_K = 60
 # BGE v1 retrieves better when the *query* (not the passages) has this instruction.
 _BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 # keeps numbers such as 7.25 and 4,50,000 intact, strips trailing punctuation.
@@ -175,13 +174,28 @@ class HybridRetriever:
         digest = hashlib.sha1(document.page_content.encode("utf-8")).hexdigest()
         return (m.get("document_id"), m.get("page_number"), digest)
 
-    def hybrid_retrieve(self, query: str) -> List[Document]:
-        """Dense + BM25, fused by Reciprocal Rank Fusion. Returns up to 2*k candidates."""
+    @staticmethod
+    def _rrf_fuse(sources, rrf_k: int) -> List[Document]:
+        """Weighted Reciprocal Rank Fusion of ``(results, weight)`` sources."""
         scores: dict = {}
         docs: dict = {}
-        for results in (self.dense_retrieve(query), self.bm25_retrieve(query)):
+        for results, weight in sources:
             for rank, doc in enumerate(results, start=1):
-                key = self._document_id(doc)
-                scores[key] = scores.get(key, 0.0) + 1.0 / (RRF_K + rank)
+                key = HybridRetriever._document_id(doc)
+                scores[key] = scores.get(key, 0.0) + weight / (rrf_k + rank)
                 docs.setdefault(key, doc)
         return [docs[key] for key in sorted(scores, key=scores.__getitem__, reverse=True)]
+
+    def hybrid_retrieve(self, query: str) -> List[Document]:
+        """Dense + BM25, fused by weighted Reciprocal Rank Fusion.
+
+        Each source contributes ``weight / (rrf_k + rank)`` per candidate, so
+        ``DENSE_WEIGHT``/``BM25_WEIGHT`` bias the fusion toward semantic or keyword
+        matching. Equal weights with ``rrf_k = 60`` reproduce classic RRF; all three
+        are env-tunable without code changes. Returns up to 2*k candidates.
+        """
+        sources = (
+            (self.dense_retrieve(query), getattr(settings, "DENSE_WEIGHT", 1.0)),
+            (self.bm25_retrieve(query), getattr(settings, "BM25_WEIGHT", 1.0)),
+        )
+        return self._rrf_fuse(sources, settings.RRF_K)

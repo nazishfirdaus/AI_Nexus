@@ -89,6 +89,7 @@ def parse_text(
             page_text,
             filename=path.name,
             page_number=page_number,
+            doc_type="text",
             raw_chars=raw_chars,
             clean_chars=clean_chars,
         )

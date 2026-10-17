@@ -166,6 +166,35 @@ each page lost and reports it rather than silently discarding:
   drops chunks below a length. It is off by default because chunker tail fragments
   can be legitimately short; raise it to opt in.
 
+## Chunking strategies (opt-in, eval-gated)
+
+The default is a self-contained recursive character splitter (`ANEXUS_CHUNK_SIZE=400`,
+`ANEXUS_CHUNK_OVERLAP=80`). Everything below is **off by default**; each flag changes
+chunk boundaries or embeddings, so turning it on requires re-ingesting the corpus.
+Enable a flag only after it wins on the eval harness (`python -m evaluation.run_eval`).
+
+- **Token-aware sizing** — `ANEXUS_CHUNK_TOKEN_AWARE=1` measures pieces with the
+  embedder's own tokenizer instead of characters, so a chunk is capped by the model's
+  real window rather than a character guess. Tune with `ANEXUS_CHUNK_MAX_TOKENS`
+  (500), `ANEXUS_CHUNK_TARGET_TOKENS` (384, soft fill target) and
+  `ANEXUS_CHUNK_OVERLAP_TOKENS` (64).
+- **Contextual headers** — `ANEXUS_CHUNK_CONTEXT_HEADER=meta` embeds a short
+  `title · page N` header in front of each chunk while the *stored* chunk text stays
+  clean, so citations and the LLM context are unaffected. Falls back to `off`.
+- **Sentence-aware packing** — `ANEXUS_CHUNK_SENTENCE_AWARE=1` packs whole sentences
+  so a sentence that fits is never split across two chunks.
+
+### Retrieval fusion
+
+Hybrid retrieval fuses dense and BM25 results with weighted Reciprocal Rank Fusion.
+Each source contributes `weight / (RRF_K + rank)` per candidate:
+
+- `ANEXUS_DENSE_WEIGHT` / `ANEXUS_BM25_WEIGHT` (default `0.5` / `0.5`, equal ⇒ classic
+  RRF) bias the fusion toward semantic or keyword matching;
+- `ANEXUS_RRF_K` (default `60`) controls how steeply rank is discounted.
+
+(These are read from `config/settings.py`, where they default to the same values.)
+
 ## Scale, multilingual search & dedup
 
 Tunings that matter most once the corpus grows past a few hundred documents:
