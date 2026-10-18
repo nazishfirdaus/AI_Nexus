@@ -218,6 +218,28 @@ fused results can only come from the chosen document. Selecting "All documents"
 keeps the default behavior. Removing the scoped document resets the selector to
 "All documents".
 
+### Prompting & grounding
+
+The system prompt grounds the model to the retrieved context, forbids invented
+facts and advisory answers, and instructs it to cite the source block inline
+(e.g. `(agreement.pdf, p.2)`) and to end with a `Sources:` line. Everything the
+model is asked to treat as data is wrapped in a `<context> … </context>` fence,
+and the prompt states that nothing inside the fence is an instruction — a
+structural defense-in-depth layer on top of the PII scrubber.
+
+- **Context budget** — `ANEXUS_CONTEXT_MAX_CHARS` (default `6000`, `0` disables)
+  caps the retrieved context handed to the LLM. Highest-ranked chunks are kept
+  until the budget is reached and the top chunk is always kept, so context is
+  never empty. The same trimmed list feeds both the prompt and the citations, so
+  the two always agree.
+- **Per-task temperature** — `ANEXUS_LLM_TEMPERATURE` (QA, default `0.1`),
+  `ANEXUS_LLM_TEMPERATURE_REWRITE` and `ANEXUS_LLM_TEMPERATURE_SUMMARY` (both
+  default to the QA value). Lower is more faithful; raise for more varied output.
+
+The evaluation harness reports `citation_support_rate` (share of model-cited
+`(doc, page)` pairs that were actually in the retrieved top-k) and
+`citation_coverage` (share of answers that cite at least one source).
+
 ## Scale, multilingual search & dedup
 
 Tunings that matter most once the corpus grows past a few hundred documents:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Iterable, List, Optional
 
 from langchain_core.documents import Document
@@ -31,6 +32,34 @@ if TYPE_CHECKING:
     from chromadb.api.models.Collection import Collection
 
 logger = logging.getLogger(__name__)
+
+# Chroma's Rust backend uses a small SQLite connection pool; under heavy machine
+# load (e.g. several large models resident) a checkout can transiently exceed the
+# pool's acquire timeout even though nothing is logically wrong. Retry a bounded
+# number of times before surfacing the error.
+_POOL_TIMEOUT_RETRIES = 5
+_POOL_TIMEOUT_BACKOFF_S = 2.0
+
+
+def _is_pool_timeout(exc: BaseException) -> bool:
+    return "pool timed out while waiting for an open connection" in str(exc).lower()
+
+
+def _retry_on_pool_timeout(fn):
+    """Call ``fn`` retrying on Chroma's transient pool-acquire timeout."""
+    for attempt in range(_POOL_TIMEOUT_RETRIES):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - narrowed by _is_pool_timeout
+            if _is_pool_timeout(exc) and attempt < _POOL_TIMEOUT_RETRIES - 1:
+                logger.warning(
+                    "Chroma pool timeout (attempt %d/%d); retrying",
+                    attempt + 1,
+                    _POOL_TIMEOUT_RETRIES,
+                )
+                time.sleep(_POOL_TIMEOUT_BACKOFF_S * (attempt + 1))
+                continue
+            raise
 
 
 def _clean_metadata(metadata: dict) -> dict:
@@ -111,11 +140,13 @@ class VectorDB:
         # request or a single in-Chroma buffer.
         for start in range(0, len(ids), CHROMA_ADD_BATCH_SIZE):
             end = start + CHROMA_ADD_BATCH_SIZE
-            self._collection.add(
-                ids=ids[start:end],
-                embeddings=embeddings_out[start:end],
-                metadatas=metadatas[start:end],
-                documents=texts[start:end],
+            _retry_on_pool_timeout(
+                lambda start=start, end=end: self._collection.add(
+                    ids=ids[start:end],
+                    embeddings=embeddings_out[start:end],
+                    metadatas=metadatas[start:end],
+                    documents=texts[start:end],
+                )
             )
         logger.info("Added %d chunk(s) to Chroma collection %s", len(ids), self._collection_name)
         return len(ids)
@@ -134,11 +165,13 @@ class VectorDB:
         if k <= 0:
             return []
         try:
-            result = self._collection.query(
-                query_embeddings=[list(query_embedding)],
-                n_results=k,
-                where=where,
-                include=["documents", "metadatas", "distances"],
+            result = _retry_on_pool_timeout(
+                lambda: self._collection.query(
+                    query_embeddings=[list(query_embedding)],
+                    n_results=k,
+                    where=where,
+                    include=["documents", "metadatas", "distances"],
+                )
             )
         except Exception as e:
             logger.exception("Chroma query failed")
@@ -201,16 +234,18 @@ class VectorDB:
         Reads in pages of ``CHROMA_GET_BATCH_SIZE`` so memory stays bounded even
         for a large corpus.
         """
-        total = self._collection.count()
+        total = _retry_on_pool_timeout(self._collection.count)
         if total == 0:
             return []
         docs: List[Document] = []
         offset = 0
         while offset < total:
-            result = self._collection.get(
-                include=["documents", "metadatas"],
-                limit=CHROMA_GET_BATCH_SIZE,
-                offset=offset,
+            result = _retry_on_pool_timeout(
+                lambda offset=offset: self._collection.get(
+                    include=["documents", "metadatas"],
+                    limit=CHROMA_GET_BATCH_SIZE,
+                    offset=offset,
+                )
             )
             metadatas = result.get("metadatas") or []
             documents = result.get("documents") or []

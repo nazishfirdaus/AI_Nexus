@@ -1,0 +1,205 @@
+{
+  "runs": [
+    {
+      "temperature": 0.0,
+      "items": 50,
+      "answer_accuracy": 0.72,
+      "answered_rate": 1.0,
+      "no_context_rate": 0.0,
+      "recall_at_k": 0.88,
+      "mrr_at_k": 0.735,
+      "pii_leak_rate": 0.0,
+      "citation_support_rate": 0.9062,
+      "citation_coverage": 0.94,
+      "fallback_rate": 0.0,
+      "median_e2e_s": 6.101,
+      "by_category": {
+        "direct_fact_lookup": {
+          "count": 15,
+          "correct": 14,
+          "accuracy": 0.9333
+        },
+        "definition_meaning": {
+          "count": 8,
+          "correct": 3,
+          "accuracy": 0.375
+        },
+        "multi_hop": {
+          "count": 8,
+          "correct": 6,
+          "accuracy": 0.75
+        },
+        "comparison": {
+          "count": 6,
+          "correct": 0,
+          "accuracy": 0.0
+        },
+        "numerical_financial": {
+          "count": 5,
+          "correct": 5,
+          "accuracy": 1.0
+        },
+        "negative_unknown": {
+          "count": 4,
+          "correct": 4,
+          "accuracy": 1.0
+        },
+        "compliance_sensitive": {
+          "count": 4,
+          "correct": 4,
+          "accuracy": 1.0
+        }
+      },
+      "by_provider": {
+        "groq": {
+          "count": 20,
+          "correct": 18,
+          "accuracy": 0.9
+        },
+        "nvidia": {
+          "count": 30,
+          "correct": 18,
+          "accuracy": 0.6
+        }
+      },
+      "repeat": 1,
+      "documents": 1,
+      "chunks_total": 39,
+      "ingest_s": 0.0
+    },
+    {
+      "temperature": 0.1,
+      "items": 50,
+      "answer_accuracy": 0.72,
+      "answered_rate": 1.0,
+      "no_context_rate": 0.0,
+      "recall_at_k": 0.88,
+      "mrr_at_k": 0.735,
+      "pii_leak_rate": 0.0,
+      "citation_support_rate": 0.8818,
+      "citation_coverage": 0.98,
+      "fallback_rate": 0.0,
+      "median_e2e_s": 5.758,
+      "by_category": {
+        "direct_fact_lookup": {
+          "count": 15,
+          "correct": 14,
+          "accuracy": 0.9333
+        },
+        "definition_meaning": {
+          "count": 8,
+          "correct": 4,
+          "accuracy": 0.5
+        },
+        "multi_hop": {
+          "count": 8,
+          "correct": 6,
+          "accuracy": 0.75
+        },
+        "comparison": {
+          "count": 6,
+          "correct": 0,
+          "accuracy": 0.0
+        },
+        "numerical_financial": {
+          "count": 5,
+          "correct": 5,
+          "accuracy": 1.0
+        },
+        "negative_unknown": {
+          "count": 4,
+          "correct": 3,
+          "accuracy": 0.75
+        },
+        "compliance_sensitive": {
+          "count": 4,
+          "correct": 4,
+          "accuracy": 1.0
+        }
+      },
+      "by_provider": {
+        "groq": {
+          "count": 20,
+          "correct": 18,
+          "accuracy": 0.9
+        },
+        "nvidia": {
+          "count": 30,
+          "correct": 18,
+          "accuracy": 0.6
+        }
+      },
+      "repeat": 1,
+      "documents": 1,
+      "chunks_total": 39,
+      "ingest_s": 0.0
+    },
+    {
+      "temperature": 0.3,
+      "items": 50,
+      "answer_accuracy": 0.76,
+      "answered_rate": 1.0,
+      "no_context_rate": 0.0,
+      "recall_at_k": 0.88,
+      "mrr_at_k": 0.735,
+      "pii_leak_rate": 0.0,
+      "citation_support_rate": 0.8713,
+      "citation_coverage": 0.94,
+      "fallback_rate": 0.0,
+      "median_e2e_s": 7.076,
+      "by_category": {
+        "direct_fact_lookup": {
+          "count": 15,
+          "correct": 15,
+          "accuracy": 1.0
+        },
+        "definition_meaning": {
+          "count": 8,
+          "correct": 4,
+          "accuracy": 0.5
+        },
+        "multi_hop": {
+          "count": 8,
+          "correct": 6,
+          "accuracy": 0.75
+        },
+        "comparison": {
+          "count": 6,
+          "correct": 0,
+          "accuracy": 0.0
+        },
+        "numerical_financial": {
+          "count": 5,
+          "correct": 5,
+          "accuracy": 1.0
+        },
+        "negative_unknown": {
+          "count": 4,
+          "correct": 4,
+          "accuracy": 1.0
+        },
+        "compliance_sensitive": {
+          "count": 4,
+          "correct": 4,
+          "accuracy": 1.0
+        }
+      },
+      "by_provider": {
+        "groq": {
+          "count": 20,
+          "correct": 18,
+          "accuracy": 0.9
+        },
+        "nvidia": {
+          "count": 30,
+          "correct": 20,
+          "accuracy": 0.6667
+        }
+      },
+      "repeat": 1,
+      "documents": 1,
+      "chunks_total": 39,
+      "ingest_s": 0.0
+    }
+  ]
+}

@@ -18,9 +18,11 @@ class FakeAdapter(BaseAdapter):
         super().__init__(model=f"{name}-model", api_key="k" if configured else None)
         self.name = name
         self.result, self.error, self.calls = result, error, 0
+        self.captured_temperature = None
 
-    def generate(self, query, context):
+    def generate(self, query, context, temperature=None):
         self.calls += 1
+        self.captured_temperature = temperature
         if self.error:
             raise self.error
         return self.result
@@ -35,9 +37,11 @@ class FakeChatAdapter(BaseAdapter):
         self.name = name
         self.result = result
         self.captured = None
+        self.captured_temperature = None
 
-    def chat(self, messages):
+    def chat(self, messages, temperature=None):
         self.captured = messages
+        self.captured_temperature = temperature
         return self.result
 
 
@@ -131,6 +135,8 @@ def test_simulated_adapter():
     h = LLMHandler({"simulated": SimulatedAdapter()}, QuotaTracker(state_path=None))
     r = h.generate(Q, C, ["simulated"])
     assert r.text.startswith("[SIMULATED]")
+    # The <context> fence must be excluded from the reported context size.
+    assert f"based on {len(str(C))} chars of context." in r.text
 
 
 def test_build_default_handler_simulated(monkeypatch):
@@ -190,6 +196,28 @@ def test_generate_messages_forwards_prebuilt_messages():
     r = handler(a).generate_messages(messages, ["fakechat"])
     assert r.text == "ok"
     assert a.captured == messages
+
+
+def test_generate_threads_temperature():
+    a = FakeChatAdapter()
+    handler(a).generate(Q, C, ["fakechat"], temperature=0.0)
+    assert a.captured_temperature == 0.0
+
+
+def test_generate_messages_threads_temperature():
+    a = FakeChatAdapter()
+    handler(a).generate_messages([{"role": "user", "content": ScrubbedText("x")}],
+                                 ["fakechat"], temperature=0.3)
+    assert a.captured_temperature == 0.3
+
+
+def test_user_prompt_fences_context_and_keeps_question_outside():
+    a = FakeChatAdapter()
+    handler(a).generate(Q, C, ["fakechat"])
+    user = a.captured[1]["content"]
+    assert "<context>" in user and "</context>" in user
+    assert user.index("what is the loan amount?") < user.index("<context>")
+    assert user.index("<context>") < user.index("Loan amount is <AMOUNT>.") < user.index("</context>")
 
 
 def test_generate_messages_rejects_bad_input():

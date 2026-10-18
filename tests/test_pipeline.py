@@ -14,6 +14,7 @@ from src.generation.llm import (
     LLMResponse,
     ScrubbedText,
 )
+from config import settings
 from src.ingestion.chunker import Chunker
 from src.rag_pipeline import RAGPipeline
 from src.retrieval.reranker import RankedChunk
@@ -142,8 +143,11 @@ class FakeLLMHandler:
         self.message_reply: str = "[SIMULATED] no rewrite"
         self.message_fail = False
         self.fail = False
+        self.captured_temperature = None
+        self.message_temperatures: list = []
 
-    def generate(self, query, context, provider_order, history=None, summary=None):
+    def generate(self, query, context, provider_order, history=None, summary=None,
+                 temperature=None):
         assert isinstance(query, ScrubbedText), "provider must receive ScrubbedText"
         assert isinstance(context, ScrubbedText), "provider must receive ScrubbedText"
         for turn in history or []:
@@ -155,6 +159,7 @@ class FakeLLMHandler:
         self.captured = (str(query), str(context))
         self.captured_history = history
         self.captured_summary = summary
+        self.captured_temperature = temperature
         if self.fail:
             raise AllProvidersFailed({p: "boom" for p in provider_order})
         return LLMResponse(
@@ -165,12 +170,13 @@ class FakeLLMHandler:
             fallbacks_tried=[],
         )
 
-    def generate_messages(self, messages, provider_order):
+    def generate_messages(self, messages, provider_order, temperature=None):
         for message in messages:
             assert isinstance(message.get("content"), ScrubbedText), (
                 "provider must receive scrubbed rewrite/summary prompts"
             )
         self.message_calls.append(list(messages))
+        self.message_temperatures.append(temperature)
         if self.message_fail:
             raise AllProvidersFailed({p: "boom" for p in provider_order})
         return LLMResponse(
@@ -307,6 +313,60 @@ def test_answer_query_scopes_both_rewrite_and_fallback(pipeline, pdf_path):
     assert all(scope == doc_id for scope in pipeline.retriever.scopes)
 
 
+# --------------------------------------------------------------- context budget
+def _ranked(page, size, score=0.9, doc="tiny_loan.pdf"):
+    return RankedChunk(
+        "x" * size,
+        {"page_number": page, "document_id": doc, "filename": doc},
+        score,
+    )
+
+
+def _blocks(context):
+    return context.count("[Doc:")
+
+
+def test_context_budget_trims_to_budget_and_matches_citations(pipeline, pdf_path, monkeypatch):
+    pipeline.ingest_document(pdf_path)
+    chunks = [_ranked(1, 100, 0.9), _ranked(2, 100, 0.8), _ranked(3, 100, 0.7)]
+    pipeline.reranker = FakeReranker(always_return=chunks)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARS", 150)
+
+    answer = pipeline.answer_query("What is the rate?")
+
+    # Top chunk (100 chars) survives; the second would cross 150, so it is dropped.
+    assert _blocks(pipeline.llm_handler.captured[1]) == 1
+    # Citations are built from the same trimmed list: only page 1 remains.
+    assert [c.page_number for c in answer.citations] == [1]
+
+
+def test_context_budget_always_keeps_top_chunk(pipeline, pdf_path, monkeypatch):
+    pipeline.ingest_document(pdf_path)
+    chunks = [_ranked(1, 500, 0.9), _ranked(2, 100, 0.8)]
+    pipeline.reranker = FakeReranker(always_return=chunks)
+    # Budget smaller than the single top chunk: context must not be empty.
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARS", 10)
+
+    pipeline.answer_query("What is the rate?")
+    assert _blocks(pipeline.llm_handler.captured[1]) == 1
+
+
+def test_context_budget_disabled_keeps_everything(pipeline, pdf_path, monkeypatch):
+    pipeline.ingest_document(pdf_path)
+    chunks = [_ranked(i, 100, 1.0 - i / 10) for i in range(1, 4)]
+    pipeline.reranker = FakeReranker(always_return=chunks)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARS", 0)
+
+    pipeline.answer_query("What is the rate?")
+    assert _blocks(pipeline.llm_handler.captured[1]) == 3
+
+
+def test_qa_call_uses_the_qa_temperature(pipeline, pdf_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.answer_query("What is the rate?")
+    assert pipeline.llm_handler.captured_temperature == settings.LLM_TEMPERATURE
+
+
 def test_all_providers_failing_is_graceful(pipeline, pdf_path):
     pipeline.ingest_document(pdf_path)
     pipeline.llm_handler.fail = True
@@ -436,6 +496,7 @@ def test_followup_query_is_rewritten_for_retrieval(pipeline, pdf_path):
     assert rewrite_messages[0]["role"] == "system"
     assert "Tell me about the loan" in rewrite_messages[1]["content"]
     assert "What about the rate?" in rewrite_messages[1]["content"]
+    assert pipeline.llm_handler.message_temperatures[0] == settings.LLM_TEMPERATURE_REWRITE
 
 
 def test_failed_rewrite_falls_back_to_the_raw_query(pipeline, pdf_path):
@@ -511,6 +572,7 @@ def test_summarize_folds_old_turns_into_a_new_summary(pipeline):
     assert "old summary" in user_content          # previous summary is carried forward
     assert "turn 0" in user_content               # folded-in turns are in the transcript
     assert f"turn {len(history) - 1}" not in user_content  # recent turns stay verbatim
+    assert pipeline.llm_handler.message_temperatures[0] == settings.LLM_TEMPERATURE_SUMMARY
 
 
 def test_summarize_llm_failure_returns_none(pipeline):

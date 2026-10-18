@@ -92,13 +92,18 @@ class BaseAdapter(ABC):
         context: str,
         history: list[dict] | None = None,
         summary: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         """Build the full message list and send it via chat()."""
-        return self.chat(_build_chat_messages(query, context, history, summary))
+        return self.chat(
+            _build_chat_messages(query, context, history, summary),
+            temperature=temperature,
+        )
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
         """Send a ready-made [{role, content}, ...] list; return answer text.
 
+        `temperature` overrides the default `LLM_TEMPERATURE` for this call.
         Subclasses implement this (or override generate directly). Raising
         ProviderError marks the attempt as a failure for the fallback chain.
         """
@@ -124,14 +129,14 @@ class OpenAICompatibleAdapter(BaseAdapter):
 
     base_url: str
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
         data = self._post(
             self.base_url,
             {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
             {
                 "model": self.model,
                 "messages": messages,
-                "temperature": settings.LLM_TEMPERATURE,
+                "temperature": settings.LLM_TEMPERATURE if temperature is None else temperature,
                 "max_tokens": settings.LLM_MAX_TOKENS,
             },
         )
@@ -156,7 +161,7 @@ class NvidiaAdapter(OpenAICompatibleAdapter):
 class GeminiAdapter(BaseAdapter):
     name = "gemini_flash"
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         system_parts = [str(m.get("content", "")) for m in messages if m.get("role") == "system"]
         contents = [
@@ -169,7 +174,7 @@ class GeminiAdapter(BaseAdapter):
         payload: dict = {
             "contents": contents,
             "generationConfig": {
-                "temperature": settings.LLM_TEMPERATURE,
+                "temperature": settings.LLM_TEMPERATURE if temperature is None else temperature,
                 "maxOutputTokens": settings.LLM_MAX_TOKENS,
             },
         }
@@ -196,7 +201,7 @@ class SimulatedAdapter(BaseAdapter):
     def __init__(self) -> None:
         super().__init__(model="simulated-1", api_key="simulated")
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
         user = ""
         for m in messages:
             if m.get("role") == "user":
@@ -208,6 +213,13 @@ class SimulatedAdapter(BaseAdapter):
             rest = user[len("Question: "):]
             if "\n\nRetrieved context:\n" in rest:
                 question, context = rest.split("\n\nRetrieved context:\n", 1)
+        # Drop the <context> fence (and the newlines around it) before measuring,
+        # so the reported size reflects the actual context, not the delimiters.
+        context = context.strip()
+        if context.startswith("<context>"):
+            context = context[len("<context>"):].strip()
+        if context.endswith("</context>"):
+            context = context[: -len("</context>")].strip()
         return f"[SIMULATED] Answer to '{question[:80]}' based on {len(context)} chars of context."
 
 
@@ -234,6 +246,7 @@ class LLMHandler:
         provider_order: list[str],
         history: list[dict] | None = None,
         summary: ScrubbedText | None = None,
+        temperature: float | None = None,
     ) -> LLMResponse:
         if not isinstance(query, ScrubbedText) or not isinstance(context, ScrubbedText):
             raise TypeError("LLMHandler only accepts ScrubbedText for query and context.")
@@ -248,13 +261,22 @@ class LLMHandler:
             return self._run(
                 provider_order,
                 lambda adapter: adapter.generate(
-                    str(query), str(context), history=history, summary=summary
+                    str(query), str(context), history=history, summary=summary,
+                    temperature=temperature,
                 ),
             )
-        return self._run(provider_order, lambda adapter: adapter.generate(str(query), str(context)))
+        return self._run(
+            provider_order,
+            lambda adapter: adapter.generate(
+                str(query), str(context), temperature=temperature
+            ),
+        )
 
     def generate_messages(
-        self, messages: list[dict], provider_order: list[str]
+        self,
+        messages: list[dict],
+        provider_order: list[str],
+        temperature: float | None = None,
     ) -> LLMResponse:
         """Send a pre-built message list (rewrite / summarization calls).
 
@@ -268,7 +290,10 @@ class LLMHandler:
                 raise TypeError(f"invalid message role: {message.get('role')!r}")
             if not isinstance(message.get("content"), ScrubbedText):
                 raise TypeError("LLMHandler only accepts ScrubbedText message content.")
-        return self._run(provider_order, lambda adapter: adapter.chat(messages))
+        return self._run(
+            provider_order,
+            lambda adapter: adapter.chat(messages, temperature=temperature),
+        )
 
     def _run(self, provider_order: list[str], invoke) -> LLMResponse:
         """Sequential fallback over `provider_order`; `invoke(adapter)` -> text."""

@@ -497,6 +497,28 @@ class RAGPipeline:
         return True
 
     # ----------------------------------------------------------------- queries
+    @staticmethod
+    def _fit_context_budget(reranked: list[RankedChunk]) -> list[RankedChunk]:
+        """Trim the reranked chunks to the configured character budget.
+
+        Keeps the highest-scored chunks in order until the budget is reached,
+        always including at least the top chunk (so context is never empty). The
+        truncated list is what both the LLM prompt and the citations are built
+        from, keeping the two consistent.
+        """
+        budget = getattr(settings, "CONTEXT_MAX_CHARS", 0)
+        if not budget or budget <= 0:
+            return list(reranked)
+        kept: list[RankedChunk] = []
+        used = 0
+        for chunk in reranked:
+            size = len(chunk.content or "")
+            if kept and used + size > budget:
+                break
+            kept.append(chunk)
+            used += size
+        return kept
+
     def answer_query(
         self,
         query: str,
@@ -563,6 +585,10 @@ class RAGPipeline:
         if not reranked:
             return self.aggregator.no_context(routing_reason="Reranker found no relevant context.")
 
+        # 2b) Character budget: trim to the configured context window; the same
+        #     list feeds both the prompt and the citations.
+        reranked = self._fit_context_budget(reranked)
+
         # 3) PII security gate: only scrubbed text may reach a provider
         scrubbed_query, scrubbed_context, scrubbed_by_page = build_llm_inputs(
             search_query, reranked, self.scrubber
@@ -582,6 +608,7 @@ class RAGPipeline:
                 provider_order=route.provider_order,
                 history=turns,
                 summary=summary,
+                temperature=settings.LLM_TEMPERATURE,
             )
         except Exception as e:
             logger.exception("All LLM providers failed")
@@ -635,7 +662,9 @@ class RAGPipeline:
                 {"role": "user", "content": ScrubbedText(self.scrubber.scrub("\n\n".join(parts)))},
             ]
             response = self.llm_handler.generate_messages(
-                messages, self.llm_handler.available_providers
+                messages,
+                self.llm_handler.available_providers,
+                temperature=settings.LLM_TEMPERATURE_SUMMARY,
             )
         except Exception:
             logger.warning("Conversation summarization failed; keeping the old summary",
