@@ -2,7 +2,8 @@
 
 answer_query() follows the architecture exactly:
 
-  validate -> [history window + follow-up rewrite] -> retrieve (dense+BM25, RRF)
+   validate -> [history window + follow-up rewrite] -> [query expansion] ->
+   multi-query retrieve (dense+BM25, RRF-fused) or hybrid retrieve
   -> rerank -> redact (Presidio) -> route (semantic router)
   -> generate w/ fallback -> aggregate + cite
 
@@ -40,6 +41,7 @@ from src.memory.history import (
     looks_like_followup,
 )
 from src.memory.rewriter import QueryRewriter
+from src.retrieval.query_expander import QueryExpander
 from src.redaction.presidio_scrubber import PresidioScrubber, build_llm_inputs
 from src.retrieval.reranker import CrossEncoderReranker, RankedChunk
 from src.retrieval.retriever import HybridRetriever
@@ -221,6 +223,7 @@ class RAGPipeline:
         # never write to the real chat database. The factory injects the shared store.
         self.document_store = document_store or DocumentStore(":memory:")
         self.rewriter = QueryRewriter(llm_handler, scrubber=self.scrubber)
+        self.expander = QueryExpander(llm_handler, scrubber=self.scrubber)
         # Most recently ingested document (kept for display/back-compat).
         self.active_document_id: Optional[str] = None
         self.active_filename: Optional[str] = None
@@ -567,7 +570,17 @@ class RAGPipeline:
                 search_query = rewritten
 
         # 1) Hybrid retrieval (dense + BM25, RRF fused), optionally doc-scoped
-        retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
+        queries: list[str] = [search_query]
+        # Multi-query expansion (paraphrases), RRF-fused with original.
+        expanded = self.expander.expand(search_query)
+        if expanded:
+            queries = [search_query] + expanded
+
+        if len(queries) == 1:
+            retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
+        else:
+            retrieved = self.retriever.multi_query_retrieve(queries, document_id)
+
         if not retrieved and search_query != query:
             # The rewrite went nowhere: fall back to the user's raw query.
             retrieved = self.retriever.hybrid_retrieve(query, document_id)

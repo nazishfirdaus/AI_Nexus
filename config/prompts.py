@@ -47,6 +47,17 @@ REWRITE_PROMPT = (
     "If the question is already standalone, reply with it unchanged."
 )
 
+EXPAND_PROMPT = (
+    "You generate search queries for a document search system.\n"
+    "Given a user's question, write {variant_count} short alternative versions that "
+    "ask the same thing using different words (synonyms, related terms, alternate "
+    "phrasings).\n"
+    "Keep every version self-contained. Do not add new facts, assumptions, or details "
+    "the user did not ask about.\n"
+    "Reply with ONLY the {variant_count} alternatives, one per line - no numbering, "
+    "no bullets, no quotes, no explanation."
+)
+
 SUMMARY_PROMPT = (
     "You summarize a conversation between a user and a document question-answering "
     "assistant.\n"

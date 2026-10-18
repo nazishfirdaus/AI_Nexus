@@ -201,6 +201,10 @@ LLM_TEMPERATURE = float(os.getenv("ANEXUS_LLM_TEMPERATURE", "0.1"))
 LLM_TEMPERATURE_REWRITE = float(
     os.getenv("ANEXUS_LLM_TEMPERATURE_REWRITE", str(LLM_TEMPERATURE))
 )
+# Expansion wants diversity (paraphrases), so it defaults higher than QA/rewrite.
+LLM_TEMPERATURE_EXPANSION = float(
+    os.getenv("ANEXUS_LLM_TEMPERATURE_EXPANSION", "0.3")
+)
 LLM_TEMPERATURE_SUMMARY = float(
     os.getenv("ANEXUS_LLM_TEMPERATURE_SUMMARY", str(LLM_TEMPERATURE))
 )
@@ -273,6 +277,15 @@ HISTORY_MAX_MESSAGE_CHARS = 1000   # per-message cap inside the history window
 HISTORY_SUMMARY_TRIGGER = 12       # messages before a rolling summary is maintained
 QUERY_REWRITE_ENABLED = True       # heuristic-gated follow-up resolution
 REWRITE_MAX_WORDS = 6              # queries this short are treated as follow-ups
+
+# Multi-query retrieval: paraphrases of a substantial query, each retrieved
+# through the hybrid retriever and RRF-fused with the original. Short queries
+# skip the extra LLM call (they are precise lookups that paraphrase poorly).
+QUERY_EXPANSION_ENABLED = (
+    os.getenv("ANEXUS_QUERY_EXPANSION_ENABLED", "1").strip().lower() in ("1", "true", "yes")
+)
+QUERY_EXPANSION_VARIANTS = int(os.getenv("ANEXUS_QUERY_EXPANSION_VARIANTS", "2"))
+QUERY_EXPANSION_MIN_WORDS = int(os.getenv("ANEXUS_QUERY_EXPANSION_MIN_WORDS", "7"))
 
 # ============================================================================
 # Auth / multi-tenancy (login + full per-user isolation)
