@@ -194,13 +194,34 @@ RERANK_MIN_SCORE = _optional_float("ANEXUS_RERANK_MIN_SCORE")
 # LLM calls
 LLM_TIMEOUT_S = 30
 LLM_MAX_TOKENS = 700
-LLM_TEMPERATURE = 0.1
+# Per-task sampling temperatures. Lower = more faithful/deterministic. QA stays
+# the most conservative; rewrite/summary default to the same value until tuned.
+# All three are env-overridable.
+LLM_TEMPERATURE = float(os.getenv("ANEXUS_LLM_TEMPERATURE", "0.1"))
+LLM_TEMPERATURE_REWRITE = float(
+    os.getenv("ANEXUS_LLM_TEMPERATURE_REWRITE", str(LLM_TEMPERATURE))
+)
+# Expansion wants diversity (paraphrases), so it defaults higher than QA/rewrite.
+LLM_TEMPERATURE_EXPANSION = float(
+    os.getenv("ANEXUS_LLM_TEMPERATURE_EXPANSION", "0.3")
+)
+LLM_TEMPERATURE_SUMMARY = float(
+    os.getenv("ANEXUS_LLM_TEMPERATURE_SUMMARY", str(LLM_TEMPERATURE))
+)
+
+# Character budget for the retrieved context handed to the LLM (0 = unbounded).
+# Highest-ranked chunks are kept until the budget is reached; the top chunk is
+# always kept even if it alone exceeds the budget. Guards cost/latency as the
+# retrieval-depth knobs (BASE_K_RETRIEVAL / TOP_K_RERANK) are turned up.
+CONTEXT_MAX_CHARS = int(os.getenv("ANEXUS_CONTEXT_MAX_CHARS", "6000"))
 
 # Model id sent to each provider's API (override via env)
-# NOTE (2026-09): the former defaults were retired -- groq llama-3.3-70b-versatile
-# and NVIDIA meta/llama-3.1-70b-instruct are gone; Gemini requires gemini-3.8-flash.
+# NOTE (2026-10): former defaults keep retiring -- NVIDIA meta/llama-3.1-70b
+# and meta/llama-3.3-70b-instruct are gone (HTTP 410); groq
+# llama-3.3-70b-versatile is gone. Current defaults verified live:
+# nvidia/nemotron-3-super-120b-a12b, gemini-3.8-flash, openai/gpt-oss-120b.
 PROVIDER_MODELS = {
-    "nvidia": os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct"),
+    "nvidia": os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
     "gemini_flash": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     "groq": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
 }
@@ -256,6 +277,23 @@ HISTORY_MAX_MESSAGE_CHARS = 1000   # per-message cap inside the history window
 HISTORY_SUMMARY_TRIGGER = 12       # messages before a rolling summary is maintained
 QUERY_REWRITE_ENABLED = True       # heuristic-gated follow-up resolution
 REWRITE_MAX_WORDS = 6              # queries this short are treated as follow-ups
+
+# Multi-query retrieval: paraphrases of a substantial query, each retrieved
+# through the hybrid retriever and RRF-fused with the original. Short queries
+# skip the extra LLM call (they are precise lookups that paraphrase poorly).
+QUERY_EXPANSION_ENABLED = (
+    os.getenv("ANEXUS_QUERY_EXPANSION_ENABLED", "1").strip().lower() in ("1", "true", "yes")
+)
+QUERY_EXPANSION_VARIANTS = int(os.getenv("ANEXUS_QUERY_EXPANSION_VARIANTS", "2"))
+QUERY_EXPANSION_MIN_WORDS = int(os.getenv("ANEXUS_QUERY_EXPANSION_MIN_WORDS", "7"))
+
+# Streaming (token streaming with buffered live scrub for PII). Enabled by default.
+# The scrubber holds back this many trailing characters so a PII value that would
+# straddle the release boundary is recognised before it is shown.
+STREAMING_ENABLED = (
+    os.getenv("ANEXUS_STREAMING_ENABLED", "1").strip().lower() in ("1", "true", "yes")
+)
+STREAM_SCRUB_TAIL_CHARS = int(os.getenv("ANEXUS_STREAM_SCRUB_TAIL_CHARS", "120"))
 
 # ============================================================================
 # Auth / multi-tenancy (login + full per-user isolation)

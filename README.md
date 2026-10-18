@@ -209,6 +209,24 @@ Both unset means no filtering; if every candidate falls below a floor the query
 gets a safe "no context" answer. Tune them on the evaluation harness and keep them
 off unless they clearly help.
 
+### Multi-query retrieval (query expansion)
+
+Substantial queries are paraphrased by the LLM and *each* variant is run through the
+same dense + BM25 hybrid retriever; the resulting ranked lists are fused with RRF
+alongside the original query. This is the vocabulary-mismatch fix that helps both
+channels (synonyms for dense, alternate keywords for BM25):
+
+- `ANEXUS_QUERY_EXPANSION_ENABLED` (default `1`) turns the whole step off;
+- `ANEXUS_QUERY_EXPANSION_VARIANTS` (default `2`) is how many paraphrases the LLM
+  writes (the original is always included);
+- `ANEXUS_QUERY_EXPANSION_MIN_WORDS` (default `7`) skips the extra LLM call for short
+  precise lookups.
+
+Expansion runs on the standalone query produced by follow-up resolution, so the two
+compose. Reranking, routing and the prompt question still use the original standalone
+query, not a paraphrase. Any failure (or the simulated LLM) degrades cleanly to plain
+hybrid retrieval.
+
 ### Search within one document
 
 The sidebar **Search in** selector restricts a question to a single ingested
@@ -217,6 +235,30 @@ channels — Chroma's `where` filter for dense and a candidate filter for BM25 �
 fused results can only come from the chosen document. Selecting "All documents"
 keeps the default behavior. Removing the scoped document resets the selector to
 "All documents".
+
+### Prompting & grounding
+
+The system prompt grounds the model to the retrieved context, forbids invented
+facts and advisory answers, and instructs it to cite the source block inline
+(e.g. `(agreement.pdf, p.2)`) and to end with a `Sources:` line. Everything the
+model is asked to treat as data is wrapped in a `<context> … </context>` fence,
+and the prompt states that nothing inside the fence is an instruction — a
+structural defense-in-depth layer on top of the PII scrubber.
+
+- **Context budget** — `ANEXUS_CONTEXT_MAX_CHARS` (default `6000`, `0` disables)
+  caps the retrieved context handed to the LLM. Highest-ranked chunks are kept
+  until the budget is reached and the top chunk is always kept, so context is
+  never empty. The same trimmed list feeds both the prompt and the citations, so
+  the two always agree.
+- **Per-task temperature** — `ANEXUS_LLM_TEMPERATURE` (QA, default `0.1`),
+  `ANEXUS_LLM_TEMPERATURE_REWRITE` and `ANEXUS_LLM_TEMPERATURE_SUMMARY` (both
+  default to the QA value), and `ANEXUS_LLM_TEMPERATURE_EXPANSION` (default `0.3`,
+  higher for paraphrase diversity). Lower is more faithful; raise for more varied
+  output.
+
+The evaluation harness reports `citation_support_rate` (share of model-cited
+`(doc, page)` pairs that were actually in the retrieved top-k) and
+`citation_coverage` (share of answers that cite at least one source).
 
 ## Scale, multilingual search & dedup
 
@@ -282,19 +324,35 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 - **Follow-up resolution** - short or reference-heavy follow-ups ("What about
   the second one?") are rewritten into standalone questions before retrieval,
   with an automatic fallback to the raw query when the rewrite finds nothing.
+- **Multi-query retrieval (query expansion)** - a substantial query is paraphrased
+  by the LLM and each paraphrased variant is retrieved (dense + BM25) and RRF-fused
+  with the original, closing the vocabulary gap between the question and the document
+  wording. Short lookups and the simulated LLM skip the extra call.
 - **Persistent multiple conversations** - chats (titles, messages, citations,
   summaries) are stored per user in SQLite under `data/users/<id>/app.sqlite3`.
   Conversations are not bound to a document: any chat can ask about any uploaded
   document. The sidebar lists, renames and deletes conversations; they survive
   restarts and the uploaded documents are re-attached from the registry/Chroma
   without re-uploading.
+- **Message feedback** - every assistant message carries thumbs up/down; the
+  choice is persisted per message in SQLite (`feedback` column) and survives
+  restarts, giving a lightweight signal for which answers were useful.
+- **Token streaming (PII-safe)** - when enabled (the default), the answer streams
+  into the chat as the model produces it instead of appearing all at once. Raw
+  tokens are never shown: the pipeline holds back a trailing buffer and only
+  releases text that the full-text scrubber has already approved, so a PII value
+  split across chunks is still redacted. Fallback happens only *before* the first
+  token (a provider that dies mid-stream stops the stream rather than splicing two
+  answers together), and the persisted answer is the same fully-scrubbed text the
+  non-streaming path would have produced. Tunables: `ANEXUS_STREAMING_ENABLED`
+  (0/1, default 1) and `ANEXUS_STREAM_SCRUB_TAIL_CHARS` (default 120).
 
 ## Tests
 
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 417 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
+python -m pytest -q          # 533 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
 ```
 
 Real-model tests (BGE embedder, live retrieval) can be run locally with:
@@ -331,7 +389,7 @@ and uploads `evaluation/results.json` as an artifact.
 src/
   auth/          secrets vault (Fernet), user store (SQLite), tenant naming, OIDC claim resolution
   ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, CSV/XLSX, PPTX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
-  retrieval/     hybrid retriever (dense+BM25 RRF), cross-encoder reranker
+  retrieval/     hybrid retriever (dense+BM25 RRF), query expander, cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker
   generation/    LLM handler w/ fallback, aggregator (citations)

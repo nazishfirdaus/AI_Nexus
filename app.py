@@ -69,10 +69,10 @@ def _init_state() -> None:
             st.session_state[key] = value
 
 
-def _add_message(role: str, content: str, citations: list | None = None) -> None:
-    st.session_state["messages"].append(
-        {"role": role, "content": content, "citations": citations}
-    )
+def _add_message(role: str, content: str, citations: list | None = None) -> dict:
+    message = {"role": role, "content": content, "citations": citations}
+    st.session_state["messages"].append(message)
+    return message
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +196,10 @@ def _sync_messages() -> None:
         st.session_state["conversation_id"] = conv_id
     store = _chat_store()
     for msg in pending:
-        store.append_message(
+        msg_id = store.append_message(
             conv_id, msg["role"], msg["content"], msg.get("citations")
         )
+        msg["id"] = msg_id
     st.session_state["messages_synced"] = len(st.session_state["messages"])
 
 
@@ -577,17 +578,40 @@ def _render_scope_caption() -> None:
     st.caption(f"🔎 Searching in **{name}** only.")
 
 
-def _render_citations(citations: list[dict]) -> None:
-    """Render stored citation dicts with their source document and page."""
-    labels = ", ".join(
-        f"{c.get('filename') or 'document'} p.{c.get('page_number')}"
-        for c in citations
-    )
-    with st.expander(f"Sources: {labels}"):
-        for c in citations:
-            name = c.get("filename") or c.get("document_id") or "Document"
-            st.markdown(f"**{name} — Page {c.get('page_number')}** — {c.get('snippet')}...")
+def _render_feedback(msg_id: int) -> None:
+    """Render thumbs up/down for an assistant message and persist the change."""
+    stored = None
+    try:
+        for m in st.session_state["messages"]:
+            if m.get("id") == msg_id:
+                stored = m.get("feedback")
+                break
+    except Exception:
+        stored = None
 
+    value = st.feedback("thumbs", key=f"fb_{msg_id}")
+    mapped = None
+    if value is True:
+        mapped = "up"
+    elif value is False:
+        mapped = "down"
+
+    if mapped == stored:
+        return
+    try:
+        _chat_store().set_feedback(msg_id, mapped)
+    except Exception:
+        logger.exception("Failed to persist feedback")
+        return
+
+    # Keep the session state in sync for a clean rerender.
+    try:
+        for m in st.session_state["messages"]:
+            if m.get("id") == msg_id:
+                m["feedback"] = mapped
+                break
+    except Exception:
+        pass
 
 def render_chat() -> None:
     st.markdown("#### Ask")
@@ -601,6 +625,8 @@ def render_chat() -> None:
                 _render_citations(citations)
             elif msg["role"] == "assistant" and not citations:
                 st.caption("No page citations (answer not tied to a retrieved page).")
+            if msg["role"] == "assistant" and "id" in msg:
+                _render_feedback(msg["id"])
 
     prompt = st.chat_input(
         "Ask a question about the documents…",
@@ -613,24 +639,47 @@ def render_chat() -> None:
     with st.chat_message("user"):
         st.write(prompt)
 
+    stream_handle = None
+    answer = None
+    error_text = None
+
     with st.spinner("Searching the documents…"):
         try:
             bundle = _bundle()
-            answer = bundle.pipeline.answer_query(
-                prompt,
+            common = dict(
                 chat_history=list(st.session_state["messages"][:-1]),
                 conversation_summary=st.session_state["conversation_summary"],
                 document_id=st.session_state.get("retrieval_scope"),
             )
+            if settings.STREAMING_ENABLED:
+                stream_handle = bundle.pipeline.answer_query_stream(prompt, **common)
+            else:
+                answer = bundle.pipeline.answer_query(prompt, **common)
         except Exception as exc:  # never let an unexpected failure kill the UI
             logger.exception("answer_query failed")
-            answer = None
             error_text = f"❌ Something went wrong while answering: {exc}"
 
-    with st.chat_message("assistant"):
-        if answer is None:
+    with st.chat_message("assistant") as bubble:
+        if error_text is not None:
             st.write(error_text)
-            _add_message("assistant", error_text)
+            msg = _add_message("assistant", error_text)
+        elif stream_handle is not None:
+            _stream_into_placeholder(stream_handle)
+            answer = stream_handle.final
+            if answer is None:
+                # Defensive: the generator died before build_final could run.
+                error_text = "❌ The response was interrupted before it finished."
+                st.write(error_text)
+                msg = _add_message("assistant", error_text)
+            else:
+                citations = [c.to_dict() for c in answer.citations]
+                if citations:
+                    _render_citations(citations)
+                else:
+                    st.caption("No page citations.")
+                # Persist the aggregator's canonical scrubbed text (already shown
+                # above is the same string, since both scrub the full raw answer).
+                msg = _add_message("assistant", answer.text, citations)
         else:
             st.write(answer.text)
             citations = [c.to_dict() for c in answer.citations]
@@ -638,9 +687,30 @@ def render_chat() -> None:
                 _render_citations(citations)
             else:
                 st.caption("No page citations.")
-            _add_message("assistant", answer.text, citations)
+            msg = _add_message("assistant", answer.text, citations)
     _sync_messages()
+    if "id" in msg:
+        with bubble:
+            _render_feedback(msg["id"])
     _maybe_update_summary()
+
+
+def _stream_into_placeholder(handle) -> None:
+    """Render a _StreamHandle's scrubbed deltas into a live placeholder.
+
+    Every chunk yielded by the pipeline has already passed the PII scrubber, so
+    this preview is safe to show.
+    """
+    placeholder = st.empty()
+    parts: list[str] = []
+    try:
+        for delta in handle:
+            parts.append(delta)
+            placeholder.markdown("".join(parts) + " ▍")
+    except Exception:
+        logger.exception("Streaming render failed")
+    finally:
+        placeholder.markdown("".join(parts))
 
 
 def _conversation_label(conv: dict) -> str:

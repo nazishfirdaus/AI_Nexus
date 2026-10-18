@@ -1,5 +1,6 @@
 """Tests for the SQLite chat store. Everything runs against tmp_path."""
 import json
+import sqlite3
 
 import pytest
 
@@ -125,3 +126,73 @@ def test_citations_survive_json_encoding(store):
     assert store.get_messages(conv_id)[0]["citations"] == citations
     # stored as a JSON string, not a Python repr
     assert json.dumps(citations) is not None
+
+
+# ------------------------------------------------------------------ feedback
+def test_feedback_defaults_to_none(store):
+    conv_id = store.create_conversation()
+    store.append_message(conv_id, "assistant", "hi")
+    assert store.get_messages(conv_id)[0]["feedback"] is None
+
+
+def test_set_and_clear_feedback(store):
+    conv_id = store.create_conversation()
+    msg_id = store.append_message(conv_id, "assistant", "answer")
+    store.set_feedback(msg_id, "up")
+    assert store.get_messages(conv_id)[0]["feedback"] == "up"
+    store.set_feedback(msg_id, "down")
+    assert store.get_messages(conv_id)[0]["feedback"] == "down"
+    store.set_feedback(msg_id, None)
+    assert store.get_messages(conv_id)[0]["feedback"] is None
+
+
+def test_set_feedback_rejects_invalid_value(store):
+    conv_id = store.create_conversation()
+    msg_id = store.append_message(conv_id, "assistant", "answer")
+    with pytest.raises(ValueError):
+        store.set_feedback(msg_id, "maybe")
+
+
+def test_set_feedback_targets_only_the_given_message(store):
+    conv_id = store.create_conversation()
+    first = store.append_message(conv_id, "assistant", "one")
+    store.append_message(conv_id, "assistant", "two")
+    store.set_feedback(first, "up")
+    messages = store.get_messages(conv_id)
+    assert [m["feedback"] for m in messages] == ["up", None]
+
+
+def test_migration_adds_feedback_column_to_legacy_db(tmp_path):
+    """A database created before feedback existed must upgrade in place."""
+    db = str(tmp_path / "legacy.sqlite3")
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE conversations (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
+            document_id TEXT, document_name TEXT, summary TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id TEXT NOT NULL,
+            role TEXT NOT NULL, content TEXT NOT NULL,
+            citations TEXT, created_at TEXT NOT NULL
+        );
+        INSERT INTO conversations
+            (id, title, summary, created_at, updated_at)
+            VALUES ('c1', 'legacy', '', '2024-01-01', '2024-01-01');
+        INSERT INTO messages
+            (conversation_id, role, content, citations, created_at)
+            VALUES ('c1', 'assistant', 'old answer', NULL, '2024-01-01');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = ChatStore(db_path=db)
+    messages = store.get_messages("c1")
+    assert messages[0]["content"] == "old answer"  # data survives the migration
+    assert messages[0]["feedback"] is None
+    store.set_feedback(messages[0]["id"], "up")
+    assert store.get_messages("c1")[0]["feedback"] == "up"

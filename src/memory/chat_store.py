@@ -8,9 +8,10 @@ Schema:
 
     conversations(id, title, document_id, document_name, summary,
                   created_at, updated_at)
-    messages(id, conversation_id, role, content, citations, created_at)
+    messages(id, conversation_id, role, content, citations, feedback, created_at)
 
-`citations` is a JSON array (or NULL). Deleting a conversation cascades to its
+`citations` is a JSON array (or NULL) and `feedback` is "up"/"down"/NULL, the
+thumbs rating on an assistant message. Deleting a conversation cascades to its
 messages via ON DELETE CASCADE (PRAGMA foreign_keys=ON per connection).
 """
 from __future__ import annotations
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
     citations       TEXT,
+    feedback        TEXT,
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
@@ -53,6 +55,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation
 """
 
 _VALID_ROLES = ("user", "assistant")
+# Allowed thumbs values; None clears the rating.
+_FEEDBACK_VALUES = ("up", "down")
 
 
 def _now() -> str:
@@ -70,6 +74,19 @@ class ChatStore:
             os.makedirs(directory, exist_ok=True)
         with self._connection() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Bring an older database up to the current schema in place.
+
+        `CREATE TABLE IF NOT EXISTS` never alters an existing table, so columns
+        added after the first release have to be introduced explicitly. Each
+        guarded ALTER is idempotent: it only runs when the column is missing.
+        """
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+        if "feedback" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN feedback TEXT")
 
     @contextmanager
     def _connection(self):
@@ -206,3 +223,15 @@ class ChatStore:
                 (conversation_id,),
             ).fetchone()
         return int(row["n"])
+
+    def set_feedback(self, message_id: int, value: Optional[str]) -> None:
+        """Record a thumbs rating ("up"/"down") on a message, or clear it (None)."""
+        if value is not None and value not in _FEEDBACK_VALUES:
+            raise ValueError(
+                f"feedback must be None or one of {_FEEDBACK_VALUES}, got {value!r}"
+            )
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "UPDATE messages SET feedback = ? WHERE id = ?",
+                (value, int(message_id)),
+            )

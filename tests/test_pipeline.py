@@ -14,6 +14,7 @@ from src.generation.llm import (
     LLMResponse,
     ScrubbedText,
 )
+from config import settings
 from src.ingestion.chunker import Chunker
 from src.rag_pipeline import RAGPipeline
 from src.retrieval.reranker import RankedChunk
@@ -83,6 +84,21 @@ class FakeRetriever:
             ]
         return docs
 
+    def multi_query_retrieve(self, queries, document_id=None):
+        # Multi-query is enabled only when expansion produced variants; record
+        # every query then reuse the same scoping logic.
+        for q in queries:
+            self.queries.append(q)
+        self.scopes.append(document_id)
+        docs = list(self.documents)
+        if document_id is not None:
+            docs = [
+                d
+                for d in docs
+                if (d.metadata or {}).get("document_id") == document_id
+            ]
+        return docs
+
 
 class FakeReranker:
     def __init__(self, always_return=None):
@@ -140,10 +156,14 @@ class FakeLLMHandler:
         self.captured_summary = None
         self.message_calls: list = []
         self.message_reply: str = "[SIMULATED] no rewrite"
+        self.message_replies: list = []  # FIFO for multiple calls
         self.message_fail = False
         self.fail = False
+        self.captured_temperature = None
+        self.message_temperatures: list = []
 
-    def generate(self, query, context, provider_order, history=None, summary=None):
+    def generate(self, query, context, provider_order, history=None, summary=None,
+                 temperature=None):
         assert isinstance(query, ScrubbedText), "provider must receive ScrubbedText"
         assert isinstance(context, ScrubbedText), "provider must receive ScrubbedText"
         for turn in history or []:
@@ -155,6 +175,7 @@ class FakeLLMHandler:
         self.captured = (str(query), str(context))
         self.captured_history = history
         self.captured_summary = summary
+        self.captured_temperature = temperature
         if self.fail:
             raise AllProvidersFailed({p: "boom" for p in provider_order})
         return LLMResponse(
@@ -165,16 +186,21 @@ class FakeLLMHandler:
             fallbacks_tried=[],
         )
 
-    def generate_messages(self, messages, provider_order):
+    def generate_messages(self, messages, provider_order, temperature=None):
         for message in messages:
             assert isinstance(message.get("content"), ScrubbedText), (
                 "provider must receive scrubbed rewrite/summary prompts"
             )
         self.message_calls.append(list(messages))
+        self.message_temperatures.append(temperature)
         if self.message_fail:
             raise AllProvidersFailed({p: "boom" for p in provider_order})
+        if self.message_replies:
+            text = self.message_replies.pop(0)
+        else:
+            text = self.message_reply
         return LLMResponse(
-            text=self.message_reply,
+            text=text,
             provider="fake",
             model="fake-1",
             latency_s=0.05,
@@ -226,6 +252,13 @@ def pdf_path(tmp_path):
     path = tmp_path / "tiny_loan.pdf"
     make_pdf(path)
     return path
+
+
+@pytest.fixture(autouse=True)
+def _disable_query_expansion(monkeypatch):
+    """Query expansion is opt-in per test: the module's fakes predate it, so keep
+    the single-query path the default and let expansion tests enable it."""
+    monkeypatch.setattr(settings, "QUERY_EXPANSION_ENABLED", False)
 
 
 # ------------------------------------------------------------------ tests
@@ -305,6 +338,60 @@ def test_answer_query_scopes_both_rewrite_and_fallback(pipeline, pdf_path):
     pipeline.answer_query("And the rate?", chat_history=history, document_id=doc_id)
     assert pipeline.retriever.scopes
     assert all(scope == doc_id for scope in pipeline.retriever.scopes)
+
+
+# --------------------------------------------------------------- context budget
+def _ranked(page, size, score=0.9, doc="tiny_loan.pdf"):
+    return RankedChunk(
+        "x" * size,
+        {"page_number": page, "document_id": doc, "filename": doc},
+        score,
+    )
+
+
+def _blocks(context):
+    return context.count("[Doc:")
+
+
+def test_context_budget_trims_to_budget_and_matches_citations(pipeline, pdf_path, monkeypatch):
+    pipeline.ingest_document(pdf_path)
+    chunks = [_ranked(1, 100, 0.9), _ranked(2, 100, 0.8), _ranked(3, 100, 0.7)]
+    pipeline.reranker = FakeReranker(always_return=chunks)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARS", 150)
+
+    answer = pipeline.answer_query("What is the rate?")
+
+    # Top chunk (100 chars) survives; the second would cross 150, so it is dropped.
+    assert _blocks(pipeline.llm_handler.captured[1]) == 1
+    # Citations are built from the same trimmed list: only page 1 remains.
+    assert [c.page_number for c in answer.citations] == [1]
+
+
+def test_context_budget_always_keeps_top_chunk(pipeline, pdf_path, monkeypatch):
+    pipeline.ingest_document(pdf_path)
+    chunks = [_ranked(1, 500, 0.9), _ranked(2, 100, 0.8)]
+    pipeline.reranker = FakeReranker(always_return=chunks)
+    # Budget smaller than the single top chunk: context must not be empty.
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARS", 10)
+
+    pipeline.answer_query("What is the rate?")
+    assert _blocks(pipeline.llm_handler.captured[1]) == 1
+
+
+def test_context_budget_disabled_keeps_everything(pipeline, pdf_path, monkeypatch):
+    pipeline.ingest_document(pdf_path)
+    chunks = [_ranked(i, 100, 1.0 - i / 10) for i in range(1, 4)]
+    pipeline.reranker = FakeReranker(always_return=chunks)
+    monkeypatch.setattr(settings, "CONTEXT_MAX_CHARS", 0)
+
+    pipeline.answer_query("What is the rate?")
+    assert _blocks(pipeline.llm_handler.captured[1]) == 3
+
+
+def test_qa_call_uses_the_qa_temperature(pipeline, pdf_path):
+    pipeline.ingest_document(pdf_path)
+    pipeline.answer_query("What is the rate?")
+    assert pipeline.llm_handler.captured_temperature == settings.LLM_TEMPERATURE
 
 
 def test_all_providers_failing_is_graceful(pipeline, pdf_path):
@@ -436,6 +523,7 @@ def test_followup_query_is_rewritten_for_retrieval(pipeline, pdf_path):
     assert rewrite_messages[0]["role"] == "system"
     assert "Tell me about the loan" in rewrite_messages[1]["content"]
     assert "What about the rate?" in rewrite_messages[1]["content"]
+    assert pipeline.llm_handler.message_temperatures[0] == settings.LLM_TEMPERATURE_REWRITE
 
 
 def test_failed_rewrite_falls_back_to_the_raw_query(pipeline, pdf_path):
@@ -483,6 +571,99 @@ def test_rewrite_that_retrieves_nothing_retries_the_raw_query(pipeline, pdf_path
     assert pipeline.llm_handler.captured[0] == "What about the rate?"
 
 
+# -------------------------------------------------------------- query expansion
+def _enable_expansion(monkeypatch, min_words=3, variants=2):
+    monkeypatch.setattr(settings, "QUERY_EXPANSION_ENABLED", True)
+    monkeypatch.setattr(settings, "QUERY_EXPANSION_MIN_WORDS", min_words)
+    monkeypatch.setattr(settings, "QUERY_EXPANSION_VARIANTS", variants)
+
+
+def test_expansion_uses_multi_query_retrieval(pipeline, pdf_path, monkeypatch):
+    _enable_expansion(monkeypatch)
+    pipeline.ingest_document(pdf_path)
+    pipeline.llm_handler.message_reply = (
+        "interest rate on the loan\nrate charged for the loan"
+    )
+    answer = pipeline.answer_query("What is the interest rate?")
+
+    assert answer.text == "7.25 percent"
+    # original + both paraphrases were retrieved and fused
+    assert pipeline.retriever.queries == [
+        "What is the interest rate?",
+        "interest rate on the loan",
+        "rate charged for the loan",
+    ]
+    # reranking and the prompt still use the original query, not a paraphrase
+    assert pipeline.llm_handler.captured[0] == "What is the interest rate?"
+    assert pipeline.llm_handler.message_temperatures[-1] == settings.LLM_TEMPERATURE_EXPANSION
+
+
+def test_expansion_failure_falls_back_to_single_query(pipeline, pdf_path, monkeypatch):
+    _enable_expansion(monkeypatch)
+    pipeline.ingest_document(pdf_path)
+    pipeline.llm_handler.message_reply = "[SIMULATED] no expansion"
+    answer = pipeline.answer_query("What is the interest rate?")
+
+    assert answer.text == "7.25 percent"
+    assert pipeline.retriever.queries == ["What is the interest rate?"]
+
+
+def test_expansion_differs_from_original_is_used(pipeline, pdf_path, monkeypatch):
+    _enable_expansion(monkeypatch)
+    pipeline.ingest_document(pdf_path)
+    # only one usable paraphrase (the second line duplicates the original)
+    pipeline.llm_handler.message_reply = (
+        "What is the interest rate?\nHow much interest is charged?"
+    )
+    pipeline.answer_query("What is the interest rate?")
+    assert pipeline.retriever.queries == [
+        "What is the interest rate?",
+        "How much interest is charged?",
+    ]
+
+
+def test_short_query_skips_expansion(pipeline, pdf_path, monkeypatch):
+    _enable_expansion(monkeypatch, min_words=7)
+    pipeline.ingest_document(pdf_path)
+    pipeline.llm_handler.message_reply = "anything goes here now"
+    pipeline.answer_query("What is the rate?")  # 4 words < 7
+    assert pipeline.retriever.queries == ["What is the rate?"]
+    assert pipeline.llm_handler.message_calls == []  # no expansion LLM call
+
+
+def test_rewrite_then_expansion_compose(pipeline, pdf_path, monkeypatch):
+    _enable_expansion(monkeypatch)
+    pipeline.ingest_document(pdf_path)
+    # First call = rewrite, second call = expansion paraphrase list.
+    pipeline.llm_handler.message_replies = [
+        "What is the interest rate on the loan?",
+        "loan interest rate\ninterest charged on the loan",
+    ]
+    history = _history(("user", "Tell me about the loan"), ("assistant", "It exists."))
+    answer = pipeline.answer_query("What about the rate?", chat_history=history)
+
+    assert answer.text == "7.25 percent"
+    # retrieved with the standalone query plus its paraphrases
+    assert pipeline.retriever.queries == [
+        "What is the interest rate on the loan?",
+        "loan interest rate",
+        "interest charged on the loan",
+    ]
+    # rewrite happens first, expansion second
+    assert pipeline.llm_handler.message_temperatures[0] == settings.LLM_TEMPERATURE_REWRITE
+    assert pipeline.llm_handler.message_temperatures[1] == settings.LLM_TEMPERATURE_EXPANSION
+    assert pipeline.llm_handler.captured[0] == "What is the interest rate on the loan?"
+
+
+def test_expansion_disabled_setting(pipeline, pdf_path):
+    # autouse fixture disables expansion; a usable reply must not be consumed
+    pipeline.ingest_document(pdf_path)
+    pipeline.llm_handler.message_reply = "interest rate on the loan\nrate charged"
+    pipeline.answer_query("What is the interest rate?")
+    assert pipeline.retriever.queries == ["What is the interest rate?"]
+    assert pipeline.llm_handler.message_calls == []
+
+
 # ------------------------------------------------------------------ summarization
 def _turns(n):
     return [
@@ -511,6 +692,7 @@ def test_summarize_folds_old_turns_into_a_new_summary(pipeline):
     assert "old summary" in user_content          # previous summary is carried forward
     assert "turn 0" in user_content               # folded-in turns are in the transcript
     assert f"turn {len(history) - 1}" not in user_content  # recent turns stay verbatim
+    assert pipeline.llm_handler.message_temperatures[0] == settings.LLM_TEMPERATURE_SUMMARY
 
 
 def test_summarize_llm_failure_returns_none(pipeline):

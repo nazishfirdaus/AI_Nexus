@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, List, Optional
 
 from langchain_core.documents import Document
@@ -250,3 +251,34 @@ class HybridRetriever:
             (self.bm25_retrieve(query, document_id), getattr(settings, "BM25_WEIGHT", 1.0)),
         )
         return self._rrf_fuse(sources, settings.RRF_K)
+
+    def multi_query_retrieve(
+        self, queries: list[str] | Sequence[str], document_id: Optional[str] = None
+    ) -> List[Document]:
+        """Run hybrid retrieval for multiple query variants, RRF-fuse them all."""
+        if not queries:
+            return []
+        # Deduplicate queries early to avoid duplicate calls.
+        unique: list[str] = []
+        seen: set[str] = set()
+        for q in queries:
+            if not q or not q.strip():
+                continue
+            key = q.strip().casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(q.strip())
+        if not unique:
+            return []
+
+        sources: list[tuple[List[Document], float]] = []
+        for q in unique:
+            results = self.hybrid_retrieve(q, document_id)
+            sources.append((results, 1.0))
+        fused = self._rrf_fuse(sources, settings.RRF_K)
+        # Cap to the same size as hybrid candidate pool for stability.
+        cap = getattr(settings, "HYBRID_CANDIDATES", self.k * 2)
+        if cap > 0 and len(fused) > cap:
+            fused = fused[:cap]
+        return fused

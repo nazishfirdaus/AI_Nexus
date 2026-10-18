@@ -61,7 +61,9 @@ class QueryRewriter:
                 {"role": "system", "content": ScrubbedText(self._scrub(REWRITE_PROMPT))},
                 {"role": "user", "content": ScrubbedText("\n\n".join(transcript_parts))},
             ]
-            response = self.llm_handler.generate_messages(messages, order)
+            response = self.llm_handler.generate_messages(
+                messages, order, temperature=settings.LLM_TEMPERATURE_REWRITE
+            )
         except Exception:
             logger.warning("Query rewrite failed; using the raw query", exc_info=True)
             return None

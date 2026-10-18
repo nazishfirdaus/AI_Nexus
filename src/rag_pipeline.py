@@ -2,7 +2,8 @@
 
 answer_query() follows the architecture exactly:
 
-  validate -> [history window + follow-up rewrite] -> retrieve (dense+BM25, RRF)
+   validate -> [history window + follow-up rewrite] -> [query expansion] ->
+   multi-query retrieve (dense+BM25, RRF-fused) or hybrid retrieve
   -> rerank -> redact (Presidio) -> route (semantic router)
   -> generate w/ fallback -> aggregate + cite
 
@@ -17,14 +18,19 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Iterator, Optional, Union
 
 from langchain_core.documents import Document
 
 from config import settings
 from config.prompts import SUMMARY_PROMPT
 from src.generation.aggregator import Aggregator, FinalAnswer
-from src.generation.llm import LLMHandler, ScrubbedText
+from src.generation.llm import (
+    AllProvidersFailed,
+    LLMHandler,
+    LLMResponse,
+    ScrubbedText,
+)
 from src.ingestion import embedder as embedder_module
 from src.ingestion.chunker import Chunker
 from src.ingestion.document_store import DocumentStore
@@ -40,6 +46,7 @@ from src.memory.history import (
     looks_like_followup,
 )
 from src.memory.rewriter import QueryRewriter
+from src.retrieval.query_expander import QueryExpander
 from src.redaction.presidio_scrubber import PresidioScrubber, build_llm_inputs
 from src.retrieval.reranker import CrossEncoderReranker, RankedChunk
 from src.retrieval.retriever import HybridRetriever
@@ -194,6 +201,121 @@ class Quote:
     text: str
 
 
+@dataclass
+class _Prepared:
+    """Everything generation needs, resolved by _prepare before any LLM call."""
+
+    search_query: str
+    reranked: list
+    scrubbed_query: "ScrubbedText"
+    scrubbed_context: "ScrubbedText"
+    scrubbed_by_page: dict
+    turns: list
+    summary: Optional[str]
+    route: RouteDecision
+
+
+class _StreamingScrubber:
+    """Buffer streamed text and only release an already-scrubbed *stable* prefix.
+
+    The persisted answer is always scrubbed in full before it is saved, so this
+    gate exists purely to keep the live preview safe. Naively releasing
+    ``raw[:-tail]`` is not enough: a PII value can straddle the release boundary
+    and its first half would go out unrecognised. Instead each step scrubs the
+    whole accumulated text and releases the longest prefix ``p`` (bounded by the
+    tail) for which ``scrub(raw[:p])`` is already a prefix of ``scrub(raw)`` -
+    i.e. a prefix the full-text scrub will not later revise. A value split
+    across ``p`` fails that check (the partial digits differ from the full
+    text's placeholder), so it is held back until it can be redacted in full.
+
+    A scrub failure is logged and the text passes through unsanitised, matching
+    the aggregator's post-scrub: nothing leaves the machine at this point, and
+    killing the UI would be worse than the (local) leak.
+    """
+
+    def __init__(self, scrubber, tail=None) -> None:
+        self.scrubber = scrubber
+        self.tail = tail if tail is not None else settings.STREAM_SCRUB_TAIL_CHARS
+        self.raw = ""
+        self._emitted = ""      # scrubbed text already released
+        self._raw_consumed = 0  # raw characters covered by _emitted
+
+    def feed(self, chunk: str) -> str:
+        """Consume one raw chunk; return the newly-safe (scrubbed) text, if any."""
+        if not chunk:
+            return ""
+        self.raw += chunk
+        limit = max(0, len(self.raw) - self.tail)
+        stable = self._stable_prefix(limit)
+        if stable <= self._raw_consumed:
+            return ""
+        scrubbed = self._scrub(self.raw[:stable])
+        if not scrubbed.startswith(self._emitted):
+            # The full-text scrub revised what we already showed (rare, e.g. a
+            # late redaction). Hold everything back rather than desync.
+            return ""
+        delta = scrubbed[len(self._emitted):]
+        self._emitted = scrubbed
+        self._raw_consumed = stable
+        return delta
+
+    def flush(self) -> str:
+        """Scrub and release everything still held back; call once at the end."""
+        scrubbed = self._scrub(self.raw)
+        if not scrubbed.startswith(self._emitted):
+            # Desynced: fall back to showing the full scrubbed text once.
+            self._emitted = scrubbed
+            self._raw_consumed = len(self.raw)
+            return scrubbed
+        delta = scrubbed[len(self._emitted):]
+        self._emitted = scrubbed
+        self._raw_consumed = len(self.raw)
+        return delta
+
+    def _stable_prefix(self, limit: int) -> int:
+        """Largest p in [consumed, limit] with scrub(raw[:p]) a prefix of scrub(raw)."""
+        full = self._scrub(self.raw)
+        lo, hi = self._raw_consumed, limit
+        best = self._raw_consumed
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if full.startswith(self._scrub(self.raw[:mid])):
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return best
+
+    def _scrub(self, text: str) -> str:
+        if self.scrubber is None or not text:
+            return text
+        try:
+            return str(self.scrubber.scrub(text))
+        except Exception:
+            logger.warning(
+                "Streaming scrub failed; passing the chunk through unsanitised.",
+                exc_info=True,
+            )
+            return text
+
+
+class _StreamHandle:
+    """Iterate scrubbed text deltas and materialise the FinalAnswer at the end."""
+
+    def __init__(self, chunks: Iterator[str], build_final) -> None:
+        self._chunks = chunks
+        self._build_final = build_final
+        self._parts: list[str] = []
+        self.final: Optional[FinalAnswer] = None
+
+    def __iter__(self):
+        for chunk in self._chunks:
+            self._parts.append(chunk)
+            yield chunk
+        if self.final is None:
+            self.final = self._build_final("".join(self._parts))
+
+
 class RAGPipeline:
     def __init__(
         self,
@@ -221,6 +343,7 @@ class RAGPipeline:
         # never write to the real chat database. The factory injects the shared store.
         self.document_store = document_store or DocumentStore(":memory:")
         self.rewriter = QueryRewriter(llm_handler, scrubber=self.scrubber)
+        self.expander = QueryExpander(llm_handler, scrubber=self.scrubber)
         # Most recently ingested document (kept for display/back-compat).
         self.active_document_id: Optional[str] = None
         self.active_filename: Optional[str] = None
@@ -497,6 +620,28 @@ class RAGPipeline:
         return True
 
     # ----------------------------------------------------------------- queries
+    @staticmethod
+    def _fit_context_budget(reranked: list[RankedChunk]) -> list[RankedChunk]:
+        """Trim the reranked chunks to the configured character budget.
+
+        Keeps the highest-scored chunks in order until the budget is reached,
+        always including at least the top chunk (so context is never empty). The
+        truncated list is what both the LLM prompt and the citations are built
+        from, keeping the two consistent.
+        """
+        budget = getattr(settings, "CONTEXT_MAX_CHARS", 0)
+        if not budget or budget <= 0:
+            return list(reranked)
+        kept: list[RankedChunk] = []
+        used = 0
+        for chunk in reranked:
+            size = len(chunk.content or "")
+            if kept and used + size > budget:
+                break
+            kept.append(chunk)
+            used += size
+        return kept
+
     def answer_query(
         self,
         query: str,
@@ -513,6 +658,143 @@ class RAGPipeline:
         When `document_id` is given, retrieval is restricted to that single
         document (both dense and BM25). An unknown id yields a no-context answer
         rather than silently leaking a cross-document result.
+        """
+        prepared = self._prepare(query, chat_history, conversation_summary, document_id)
+        if isinstance(prepared, FinalAnswer):
+            return prepared
+
+        try:
+            llm_response = self.llm_handler.generate(
+                prepared.scrubbed_query,
+                prepared.scrubbed_context,
+                provider_order=prepared.route.provider_order,
+                history=prepared.turns,
+                summary=prepared.summary,
+                temperature=settings.LLM_TEMPERATURE,
+            )
+        except Exception as e:
+            logger.exception("All LLM providers failed")
+            return self.aggregator.graceful_failure(
+                f"All configured language models are unavailable right now. "
+                f"Please try again shortly. ({str(e)[:200]})",
+                intent=prepared.route.intent,
+                routing_reason=prepared.route.reason,
+            )
+
+        return self.aggregator.aggregate(
+            llm_response,
+            prepared.reranked,
+            intent=prepared.route.intent,
+            routing_reason=prepared.route.reason,
+            scrubbed_by_page=prepared.scrubbed_by_page,
+        )
+
+    def answer_query_stream(
+        self,
+        query: str,
+        chat_history: Optional[list[dict]] = None,
+        conversation_summary: Optional[str] = None,
+        document_id: Optional[str] = None,
+    ) -> "_StreamHandle":
+        """Streaming twin of answer_query: yields scrubbed text deltas.
+
+        Every emitted chunk has already passed the PII scrubber (see
+        _StreamingScrubber), so the live preview never shows unredacted text.
+        After the iterator is exhausted, `.final` holds the same FinalAnswer
+        the non-streaming path would have produced (scrubbed text + citations).
+        """
+        prepared = self._prepare(query, chat_history, conversation_summary, document_id)
+        if isinstance(prepared, FinalAnswer):
+            return _StreamHandle(iter([prepared.text]), lambda _text: prepared)
+
+        raw_parts: list[str] = []
+        stream_meta: dict = {}
+        failure_msg = (
+            "All configured language models are unavailable right now. "
+            "Please try again shortly."
+        )
+
+        def generate() -> Iterator[str]:
+            stream = None
+            scrubber = _StreamingScrubber(self.scrubber)
+            raw_parts.clear()
+            stream_meta.clear()
+            try:
+                stream = self.llm_handler.generate_stream(
+                    prepared.scrubbed_query,
+                    prepared.scrubbed_context,
+                    provider_order=prepared.route.provider_order,
+                    history=prepared.turns,
+                    summary=prepared.summary,
+                    temperature=settings.LLM_TEMPERATURE,
+                )
+                for raw_chunk in stream:
+                    raw_parts.append(raw_chunk)
+                    delta = scrubber.feed(raw_chunk)
+                    if delta:
+                        yield delta
+                tail = scrubber.flush()
+                if tail:
+                    yield tail
+            except Exception as e:
+                logger.exception("Streaming generation failed")
+                stream_meta["error"] = str(e)
+                tail = scrubber.flush()
+                if tail:
+                    yield tail
+                if not raw_parts:
+                    # Nothing was shown yet; surface a safe, user-facing message.
+                    yield failure_msg
+            else:
+                stream_meta["text"] = "".join(raw_parts)
+                stream_meta["provider"] = stream.provider
+                stream_meta["model"] = stream.model
+                stream_meta["latency_s"] = stream.latency_s
+                stream_meta["fallbacks_tried"] = list(stream.fallbacks_tried)
+
+        def build_final(_displayed: str) -> FinalAnswer:
+            if "error" in stream_meta:
+                # Mirrors answer_query()'s handler for a total provider failure.
+                return self.aggregator.graceful_failure(
+                    f"{failure_msg} ({stream_meta['error'][:200]})",
+                    intent=prepared.route.intent,
+                    routing_reason=prepared.route.reason,
+                )
+            if "text" not in stream_meta:
+                # The generator never completed (e.g. a hard stream failure).
+                return self.aggregator.graceful_failure(
+                    "The response stream was interrupted before it finished.",
+                    intent=prepared.route.intent,
+                    routing_reason=prepared.route.reason,
+                )
+            llm_response = LLMResponse(
+                text=stream_meta["text"],
+                provider=stream_meta["provider"],
+                model=stream_meta["model"],
+                latency_s=stream_meta["latency_s"],
+                fallbacks_tried=stream_meta["fallbacks_tried"],
+            )
+            return self.aggregator.aggregate(
+                llm_response,
+                prepared.reranked,
+                intent=prepared.route.intent,
+                routing_reason=prepared.route.reason,
+                scrubbed_by_page=prepared.scrubbed_by_page,
+            )
+
+        return _StreamHandle(generate(), build_final)
+
+    def _prepare(
+        self,
+        query: str,
+        chat_history: Optional[list[dict]] = None,
+        conversation_summary: Optional[str] = None,
+        document_id: Optional[str] = None,
+    ) -> Union[FinalAnswer, "_Prepared"]:
+        """Shared pre-generation work for answer_query / answer_query_stream.
+
+        Returns either an early FinalAnswer (validation failure, no document, no
+        context) or a _Prepared bundle of everything the generation step needs.
         """
         validation = self._validate_query(query)
         if validation is not None:
@@ -545,7 +827,17 @@ class RAGPipeline:
                 search_query = rewritten
 
         # 1) Hybrid retrieval (dense + BM25, RRF fused), optionally doc-scoped
-        retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
+        queries: list[str] = [search_query]
+        # Multi-query expansion (paraphrases), RRF-fused with original.
+        expanded = self.expander.expand(search_query)
+        if expanded:
+            queries = [search_query] + expanded
+
+        if len(queries) == 1:
+            retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
+        else:
+            retrieved = self.retriever.multi_query_retrieve(queries, document_id)
+
         if not retrieved and search_query != query:
             # The rewrite went nowhere: fall back to the user's raw query.
             retrieved = self.retriever.hybrid_retrieve(query, document_id)
@@ -563,6 +855,10 @@ class RAGPipeline:
         if not reranked:
             return self.aggregator.no_context(routing_reason="Reranker found no relevant context.")
 
+        # 2b) Character budget: trim to the configured context window; the same
+        #     list feeds both the prompt and the citations.
+        reranked = self._fit_context_budget(reranked)
+
         # 3) PII security gate: only scrubbed text may reach a provider
         scrubbed_query, scrubbed_context, scrubbed_by_page = build_llm_inputs(
             search_query, reranked, self.scrubber
@@ -574,31 +870,15 @@ class RAGPipeline:
             available_providers=self.llm_handler.available_providers,
         )
 
-        # 5) Generate with automatic fallback
-        try:
-            llm_response = self.llm_handler.generate(
-                scrubbed_query,
-                scrubbed_context,
-                provider_order=route.provider_order,
-                history=turns,
-                summary=summary,
-            )
-        except Exception as e:
-            logger.exception("All LLM providers failed")
-            return self.aggregator.graceful_failure(
-                f"All configured language models are unavailable right now. "
-                f"Please try again shortly. ({str(e)[:200]})",
-                intent=route.intent,
-                routing_reason=route.reason,
-            )
-
-        # 6) Aggregate + cite
-        return self.aggregator.aggregate(
-            llm_response,
-            reranked,
-            intent=route.intent,
-            routing_reason=route.reason,
+        return _Prepared(
+            search_query=search_query,
+            reranked=reranked,
+            scrubbed_query=scrubbed_query,
+            scrubbed_context=scrubbed_context,
             scrubbed_by_page=scrubbed_by_page,
+            turns=turns,
+            summary=summary,
+            route=route,
         )
 
     def summarize_history(
@@ -635,7 +915,9 @@ class RAGPipeline:
                 {"role": "user", "content": ScrubbedText(self.scrubber.scrub("\n\n".join(parts)))},
             ]
             response = self.llm_handler.generate_messages(
-                messages, self.llm_handler.available_providers
+                messages,
+                self.llm_handler.available_providers,
+                temperature=settings.LLM_TEMPERATURE_SUMMARY,
             )
         except Exception:
             logger.warning("Conversation summarization failed; keeping the old summary",
