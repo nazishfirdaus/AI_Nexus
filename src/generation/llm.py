@@ -11,6 +11,7 @@ Design rules:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -77,6 +78,7 @@ def _build_chat_messages(
 # ---------------------------------------------------------------------------
 class BaseAdapter(ABC):
     name: str
+    supports_streaming: bool = False
 
     def __init__(self, model: str, api_key: str | None, timeout: float = settings.LLM_TIMEOUT_S):
         self.model = model
@@ -100,14 +102,8 @@ class BaseAdapter(ABC):
             temperature=temperature,
         )
 
-    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
-        """Send a ready-made [{role, content}, ...] list; return answer text.
-
-        `temperature` overrides the default `LLM_TEMPERATURE` for this call.
-        Subclasses implement this (or override generate directly). Raising
-        ProviderError marks the attempt as a failure for the fallback chain.
-        """
-        raise NotImplementedError(f"{type(self).__name__} does not implement chat()")
+    def chat_stream(self, messages: list[dict], temperature: float | None = None):
+        raise NotImplementedError(f"{type(self).__name__} does not implement chat_stream()")
 
     def _post(self, url: str, headers: dict, payload: dict) -> dict:
         try:
@@ -123,11 +119,37 @@ class BaseAdapter(ABC):
         except ValueError as e:
             raise ProviderError("invalid JSON in response", self.name) from e
 
+    def _post_stream(self, url: str, headers: dict, payload: dict):
+        """POST with stream=True; yield each SSE `data:` payload as a string.
+
+        Stops at the `[DONE]` sentinel. Raises the same ProviderError family as
+        `_post` so the streaming fallback chain can reuse the existing handling.
+        """
+        try:
+            r = requests.post(
+                url, headers=headers, json=payload, timeout=self.timeout, stream=True
+            )
+        except requests.Timeout as e:
+            raise ProviderError(f"timeout after {self.timeout}s", self.name) from e
+        except requests.RequestException as e:
+            raise ProviderError(f"network error: {e}", self.name) from e
+        if r.status_code != 200:
+            raise ProviderError(f"HTTP {r.status_code}: {r.text[:300]}", self.name, r.status_code)
+        for raw in r.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith("data:"):
+                continue
+            chunk = raw[5:].strip()
+            if chunk == "[DONE]":
+                break
+            if chunk:
+                yield chunk
+
 
 class OpenAICompatibleAdapter(BaseAdapter):
     """Works for any OpenAI-style chat completions API (OpenAI, Groq, ...)."""
 
     base_url: str
+    supports_streaming = True
 
     def chat(self, messages: list[dict], temperature: float | None = None) -> str:
         data = self._post(
@@ -145,6 +167,30 @@ class OpenAICompatibleAdapter(BaseAdapter):
         except (KeyError, IndexError, AttributeError) as e:
             raise ProviderError(f"unexpected response shape: {str(data)[:200]}", self.name) from e
 
+    def chat_stream(self, messages: list[dict], temperature: float | None = None):
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": settings.LLM_TEMPERATURE if temperature is None else temperature,
+            "max_tokens": settings.LLM_MAX_TOKENS,
+            "stream": True,
+        }
+        for raw in self._post_stream(
+            self.base_url,
+            {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            payload,
+        ):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+            try:
+                content = data["choices"][0]["delta"]["content"]
+                if content:
+                    yield content
+            except (KeyError, IndexError, TypeError):
+                continue
+
 
 class GroqAdapter(OpenAICompatibleAdapter):
     name = "groq"
@@ -160,9 +206,9 @@ class NvidiaAdapter(OpenAICompatibleAdapter):
 
 class GeminiAdapter(BaseAdapter):
     name = "gemini_flash"
+    supports_streaming = True
 
-    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+    def _build_payload(self, messages: list[dict], temperature: float | None) -> dict:
         system_parts = [str(m.get("content", "")) for m in messages if m.get("role") == "system"]
         contents = [
             # Gemini alternates "user" / "model" roles.
@@ -180,10 +226,14 @@ class GeminiAdapter(BaseAdapter):
         }
         if system_parts:
             payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+        return payload
+
+    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         data = self._post(
             url,
             {"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-            payload,
+            self._build_payload(messages, temperature),
         )
         try:
             parts = data["candidates"][0]["content"]["parts"]
@@ -192,16 +242,37 @@ class GeminiAdapter(BaseAdapter):
             # Safety blocks / empty candidates land here.
             raise ProviderError(f"no usable candidate: {str(data)[:200]}", self.name) from e
 
+    def chat_stream(self, messages: list[dict], temperature: float | None = None):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent?alt=sse"
+        for raw in self._post_stream(
+            url,
+            {"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+            self._build_payload(messages, temperature),
+        ):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+            try:
+                parts = data["candidates"][0]["content"]["parts"]
+                for p in parts:
+                    t = p.get("text")
+                    if t:
+                        yield t
+            except (KeyError, IndexError, TypeError):
+                continue
+
 
 class SimulatedAdapter(BaseAdapter):
     """Offline, deterministic adapter for tests (SIMULATE_LLM=1)."""
 
     name = "simulated"
+    supports_streaming = True
 
     def __init__(self) -> None:
         super().__init__(model="simulated-1", api_key="simulated")
 
-    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
+    def _answer_text(self, messages: list[dict]) -> str:
         user = ""
         for m in messages:
             if m.get("role") == "user":
@@ -221,6 +292,15 @@ class SimulatedAdapter(BaseAdapter):
         if context.endswith("</context>"):
             context = context[: -len("</context>")].strip()
         return f"[SIMULATED] Answer to '{question[:80]}' based on {len(context)} chars of context."
+
+    def chat(self, messages: list[dict], temperature: float | None = None) -> str:
+        return self._answer_text(messages)
+
+    def chat_stream(self, messages: list[dict], temperature: float | None = None):
+        text = self._answer_text(messages)
+        n = 32
+        for i in range(0, len(text), n):
+            yield text[i:i + n]
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +375,32 @@ class LLMHandler:
             lambda adapter: adapter.chat(messages, temperature=temperature),
         )
 
+    def generate_stream(
+        self,
+        query: ScrubbedText,
+        context: ScrubbedText,
+        provider_order: list[str],
+        history: list[dict] | None = None,
+        summary: ScrubbedText | None = None,
+        temperature: float | None = None,
+    ) -> "LLMStream":
+        """Streaming twin of generate(): same ScrubbedText gate, streamed chunks.
+
+        Returns an LLMStream (iterable of text chunks) that exposes
+        provider / model / latency_s / fallbacks_tried once iteration completes.
+        """
+        if not isinstance(query, ScrubbedText) or not isinstance(context, ScrubbedText):
+            raise TypeError("LLMHandler only accepts ScrubbedText for query and context.")
+        if history:
+            for turn in history:
+                if not isinstance(turn.get("content"), ScrubbedText):
+                    raise TypeError("LLMHandler only accepts ScrubbedText history content.")
+        if summary is not None and not isinstance(summary, ScrubbedText):
+            raise TypeError("LLMHandler only accepts ScrubbedText for summary.")
+
+        messages = _build_chat_messages(str(query), str(context), history, summary)
+        return LLMStream(self, messages, provider_order, temperature)
+
     def _run(self, provider_order: list[str], invoke) -> LLMResponse:
         """Sequential fallback over `provider_order`; `invoke(adapter)` -> text."""
         errors: dict[str, str] = {}
@@ -334,6 +440,93 @@ class LLMHandler:
                 latency_s=time.perf_counter() - start,
                 fallbacks_tried=tried[:-1],
             )
+
+        raise AllProvidersFailed(errors)
+
+
+class LLMStream:
+    """Iterator of streamed answer chunks with fallback-after-first-token.
+
+    Fallback only happens before the first token: a provider that fails before
+    emitting anything falls through to the next one. Once a token has been
+    yielded the stream is committed to that provider - a mid-stream error stops
+    the stream (logged + quota-failed) rather than splicing two providers'
+    text together. After exhaustion, ``provider`` / ``model`` / ``latency_s`` /
+    ``fallbacks_tried`` describe whichever provider actually answered.
+    """
+
+    def __init__(self, handler: "LLMHandler", messages: list[dict],
+                 provider_order: list[str], temperature: float | None) -> None:
+        self._handler = handler
+        self._messages = messages
+        self._provider_order = provider_order
+        self._temperature = temperature
+        self.provider = ""
+        self.model = ""
+        self.latency_s = 0.0
+        self.fallbacks_tried: list[str] = []
+        self.text = ""
+
+    def __iter__(self):
+        errors: dict[str, str] = {}
+        tried: list[str] = []
+
+        for name in self._provider_order:
+            adapter = self._handler.adapters.get(name)
+            if adapter is None or not adapter.is_configured():
+                errors[name] = "not configured"
+                continue
+            if not self._handler.quota.is_available(name):
+                errors[name] = (
+                    f"cooling down ({self._handler.quota.seconds_remaining(name):.0f}s left)"
+                )
+                continue
+            if not getattr(adapter, "supports_streaming", False):
+                errors[name] = "streaming unsupported"
+                continue
+
+            tried.append(name)
+            start = time.perf_counter()
+            emitted = False
+            try:
+                for chunk in adapter.chat_stream(
+                    self._messages, temperature=self._temperature
+                ):
+                    if not chunk:
+                        continue
+                    emitted = True
+                    self.provider = name
+                    self.model = adapter.model
+                    self.text += chunk
+                    yield chunk
+            except ProviderError as e:
+                self._handler.quota.record_failure(name, e)
+                errors[name] = str(e)
+                if emitted:
+                    logger.warning(
+                        "Stream from %s failed after the first token; stopping. %s", name, e
+                    )
+                    self.latency_s = time.perf_counter() - start
+                    self.fallbacks_tried = tried[:-1]
+                    return
+                logger.warning("Provider %s failed, trying next: %s", name, e)
+                continue
+            except Exception as e:  # never let an adapter bug crash the chain
+                self._handler.quota.record_failure(name, e)
+                errors[name] = f"unexpected: {e}"
+                if emitted:
+                    logger.warning(
+                        "Stream from %s failed after the first token; stopping. %s", name, e
+                    )
+                    self.latency_s = time.perf_counter() - start
+                    self.fallbacks_tried = tried[:-1]
+                    return
+                continue
+
+            self._handler.quota.record_success(name)
+            self.latency_s = time.perf_counter() - start
+            self.fallbacks_tried = tried[:-1]
+            return
 
         raise AllProvidersFailed(errors)
 

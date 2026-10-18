@@ -334,13 +334,25 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
   document. The sidebar lists, renames and deletes conversations; they survive
   restarts and the uploaded documents are re-attached from the registry/Chroma
   without re-uploading.
+- **Message feedback** - every assistant message carries thumbs up/down; the
+  choice is persisted per message in SQLite (`feedback` column) and survives
+  restarts, giving a lightweight signal for which answers were useful.
+- **Token streaming (PII-safe)** - when enabled (the default), the answer streams
+  into the chat as the model produces it instead of appearing all at once. Raw
+  tokens are never shown: the pipeline holds back a trailing buffer and only
+  releases text that the full-text scrubber has already approved, so a PII value
+  split across chunks is still redacted. Fallback happens only *before* the first
+  token (a provider that dies mid-stream stops the stream rather than splicing two
+  answers together), and the persisted answer is the same fully-scrubbed text the
+  non-streaming path would have produced. Tunables: `ANEXUS_STREAMING_ENABLED`
+  (0/1, default 1) and `ANEXUS_STREAM_SCRUB_TAIL_CHARS` (default 120).
 
 ## Tests
 
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 507 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
+python -m pytest -q          # 533 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
 ```
 
 Real-model tests (BGE embedder, live retrieval) can be run locally with:

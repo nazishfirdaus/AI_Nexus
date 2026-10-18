@@ -287,6 +287,14 @@ QUERY_EXPANSION_ENABLED = (
 QUERY_EXPANSION_VARIANTS = int(os.getenv("ANEXUS_QUERY_EXPANSION_VARIANTS", "2"))
 QUERY_EXPANSION_MIN_WORDS = int(os.getenv("ANEXUS_QUERY_EXPANSION_MIN_WORDS", "7"))
 
+# Streaming (token streaming with buffered live scrub for PII). Enabled by default.
+# The scrubber holds back this many trailing characters so a PII value that would
+# straddle the release boundary is recognised before it is shown.
+STREAMING_ENABLED = (
+    os.getenv("ANEXUS_STREAMING_ENABLED", "1").strip().lower() in ("1", "true", "yes")
+)
+STREAM_SCRUB_TAIL_CHARS = int(os.getenv("ANEXUS_STREAM_SCRUB_TAIL_CHARS", "120"))
+
 # ============================================================================
 # Auth / multi-tenancy (login + full per-user isolation)
 # ============================================================================
