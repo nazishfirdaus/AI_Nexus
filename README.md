@@ -364,24 +364,157 @@ python -m pytest -q tests/test_embedder.py tests/test_real_retrieval.py
 
 ## Evaluation
 
-A 50-question golden dataset (`evaluation/golden_dataset.json`) is annotated with
-source pages per category (fact lookup, definitions, multi-hop, comparison,
-numerical, negative/unknown, compliance). Score the retrieval + answer stack:
+Two 50-question golden datasets (`evaluation/golden_dataset_01.json` and
+`evaluation/golden_dataset_02.json`), each annotated with source pages per
+category (fact lookup, definitions, multi-hop, comparison, numerical,
+negative/unknown, compliance), are scored against a **two-document corpus**:
 
 ```bash
-python -m evaluation.run_eval --file Synthetic_Mortgage_Loan_File_TEST.pdf
-# optional: RAGAS-style overlap report from the saved results
+# end-to-end + retrieval metrics over both documents (offline, simulated LLM)
+python -m evaluation.run_eval \
+  --file Synthetic_Mortgage_Loan_File_TEST_01.pdf \
+  --file Synthetic_Mortgage_Loan_File_TEST_02.pdf
+
+# additionally run the oracle-context pass (separates retrieval vs generation)
+python -m evaluation.run_eval \
+  --file Synthetic_Mortgage_Loan_File_TEST_01.pdf \
+  --file Synthetic_Mortgage_Loan_File_TEST_02.pdf --oracle
+
+# offline groundedness / relevance report from a saved run
 python -m evaluation.ragas_eval --input evaluation/results.json
 ```
 
-Metrics reported: **Recall@K**, **MRR@K**, top-k-empty rate, no-context rate,
-PII-leak rate, and latency percentiles.
+Both files are loaded by default (`--dataset` may be repeated to override).
+Each question carries a `source_file` so hits are matched per document even
+when the same page number exists in both.
+
+**Retrieval metrics** (computed with generation disabled): Precision@K, true
+Recall@K, HitRate@K, MRR@K, nDCG@K, context precision (average precision) and
+context recall (fraction of gold answer points present in the retrieved context).
+
+**Generation metrics** (all offline, no LLM judge): answer accuracy against
+curated literal answer points, citation precision/coverage, **groundedness**
+(claim-level token-overlap of each answer sentence against the retrieved
+context — an offline stand-in for RAGAS faithfulness), and **answer relevance**
+(cosine similarity between the answer and the golden answer using the existing
+BGE embedder). Safety is measured as PII-leak rate.
+
+**Retrieval vs generation attribution:** `--oracle` re-answers every question
+with the gold pages injected as context (retrieval bypassed). A high oracle
+score with a low end-to-end score points at retrieval; both low points at
+generation. The gap is reported per category.
+
+### Real-provider runs (API keys)
+
+With keys in `.env` (`NVIDIA_API_KEY`, `GROQ_API_KEY`, optional
+`GEMINI_API_KEY`) the same command scores against live models:
+
+```bash
+python -m evaluation.provider_smoke        # first: verify keys + model ids
+python -m evaluation.run_eval --resume --oracle --min-interval-s 1 \
+  --max-cost-usd 0 \
+  --file Synthetic_Mortgage_Loan_File_TEST_01.pdf \
+  --file Synthetic_Mortgage_Loan_File_TEST_02.pdf
+```
+
+- `--provider nvidia|groq|...` pins one provider; otherwise the fallback
+  chain runs (intent picks the first hop).
+- `--max-cost-usd N` stops both passes cleanly at N dollars; `0` = uncapped
+  (correct for free-tier keys). Spend is metered per call and per provider by
+  `evaluation/cost.py` (prices default to zero; override with `ANEXUS_PRICE_*`).
+- `--resume` continues a crashed sweep from `evaluation/results.partial.json`
+  (oracle has its own `.oracle.partial.json`); the checkpoints are cleared on
+  success so re-running never double-counts.
+- `--no-preflight` skips the one-call-per-provider smoke test; `--limit N`
+  scores only the first N questions.
+
+**Provider reality:** model IDs rotate without notice, and NVIDIA additionally
+removes models *per account* (HTTP 404 `Function ... Not found for account`)
+that its public catalog still lists. Verified 2026-10-21: `nvidia`
+(`nvidia/nemotron-3.5-lightning-30b-a3b`) and `groq` (`openai/gpt-oss-120b`)
+respond; `gemini_flash` times out (the chain skips it); several other NVIDIA
+ids are gated for this key. Run `python -m evaluation.provider_smoke` for the
+live state - it exits non-zero only when *no* provider answers.
+
+### Real RAGAS (LLM judge)
+
+`evaluation/ragas_real.py` re-scores a finished run with RAGAS 0.4.3's
+faithfulness / answer-relevance / context-precision family against a real
+judge:
+
+```bash
+python -m evaluation.ragas_real --judge groq evaluation/results.json
+```
+
+- Judge choices are `groq` (default, `openai/gpt-oss-120b`) or `nvidia`.
+  Metrics resolve from the legacy `ragas.metrics` registry via
+  `evaluation/ragas_compat.py`; RAGAS 0.4.x's newer
+  `ragas.metrics.collections.*` classes are rejected by `evaluate()`.
+- **Groq's free tier allows 200k judge tokens/day.** Measured: one 20-row x
+  6-metric pass burned ~198k and then hit `429`; a full 100-row x 6-metric
+  pass is ~1.8M tokens - multiple days of quota. Split the metric set across
+  days instead, appending into one report with `--resume`:
+
+  ```bash
+  # day 1 - judge-only metrics
+  python -m evaluation.ragas_real --judge groq --resume \
+    --metrics faithfulness,response_groundedness
+  # day 2 - embedding-backed metrics append to the same file
+  python -m evaluation.ragas_real --judge groq --resume \
+    --metrics answer_relevancy,answer_correctness
+  ```
+
+  `--resume` scores only rows missing one of the requested columns and merges
+  the result into `evaluation/ragas_real.json` (prior rows and metrics are kept),
+  so each day's pass accumulates. `--limit`/`--out` still narrow or redirect a
+  single pass, and `--judge nvidia` avoids the Groq ceiling entirely.
+- `--timeout-s` defaults to 600 s: multi-call metrics exceeded an earlier
+  180 s cap and silently produced NaN rows.
+
+### NLI claim verification (local, offline)
+
+```bash
+python -m evaluation.run_eval --nli ...            # scores the run afterwards
+python -m evaluation.nli --results evaluation/results.json   # standalone/CI
+```
+
+Each answer is split into claims and checked against the retrieved context
+with `cross-encoder/nli-deberta-v3-base`, adding `nli_claim_count`,
+`nli_entailed_fraction` and `nli_contradiction_fraction` per row and to the
+summary. The scorer always runs in a **separate process**: resident next to
+the embedder, the ~700 MB model pushed this 4 GB box into paging - chroma's
+connection pool timed out on every query and rows took ~100x longer.
+
+### TruthfulQA (closed-book hallucination baseline)
+
+```bash
+python -m evaluation.benchmarks.truthfulqa --download-only   # once: caches 817 q
+python -m evaluation.benchmarks.truthfulqa \
+  --provider nvidia --limit 50 --timeout-s 60
+```
+
+No documents, no retrieval: the bare generator picks MC1 letters
+(judge-free, deterministic shuffling, free-tier only). It is the hallucination
+baseline to read next to the RAG numbers above. First run (50 questions,
+`nvidia/nemotron-3.5-lightning-30b-a3b`, `--timeout-s 60`): **accuracy 0.7708
+of answered, answered 48/50, median 7.5 s, ~45k tokens** - both misses
+exhausted the 4096-token cap on reasoning alone, and without `--timeout-s`
+(30 s default) 5-7 of the hardest questions time out instead. `--simulate`
+exercises the plumbing only (its canned replies rarely parse as a letter).
 
 ### CI
 
-`.github/workflows/rag-eval.yml` runs the full suite with `SIMULATE_LLM=true` on
-push to `main`/`ashfaque-development` and on PRs, then runs the golden-set eval
-and uploads `evaluation/results.json` as an artifact.
+- `.github/workflows/rag-eval.yml` - automatic gate: full suite with
+  `SIMULATE_LLM=true` on push to `main`/`ashfaque-development` and on PRs,
+  then the golden-set eval; uploads `evaluation/results.json`.
+- `.github/workflows/rag-eval-real.yml` - **manual only**
+  (`workflow_dispatch`; inputs: `limit`, `provider`, `oracle`, `nli`,
+  `max_cost_usd`): preflight + real-key end-to-end/oracle pass + optional NLI
+  post-scorer. Requires repository secrets `NVIDIA_API_KEY`, `GROQ_API_KEY`
+  (optional `GEMINI_API_KEY`).
+
+Reproducible real runs install the pinned eval toolchain on top of the base
+requirements: `pip install -r requirements.txt -r requirements-eval.txt`.
 
 ## Project layout
 

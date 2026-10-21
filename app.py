@@ -28,7 +28,7 @@ from src.rag_pipeline import DuplicateDocumentError
 logger = logging.getLogger(__name__)
 
 APP_TITLE = "ANexus"
-SAMPLE_PDF = Path(__file__).resolve().parent / "Synthetic_Mortgage_Loan_File_TEST.pdf"
+SAMPLE_PDF = Path(__file__).resolve().parent / "Synthetic_Mortgage_Loan_File_TEST_01.pdf"
 
 DISCLAIMER = (
     "Demonstration / educational system. Not affiliated with any bank or lender. "

@@ -382,13 +382,13 @@ def test_supported_extensions_cover_every_parser():
 
 
 def test_parse_pdf_through_dispatcher_still_works():
-    documents = parse_document(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+    documents = parse_document(Path("Synthetic_Mortgage_Loan_File_TEST_01.pdf"))
     _assert_standard_schema(documents)
     assert len(documents) == 12
 
 
 def test_parse_pdf_defaults_to_pymupdf_baseline():
-    documents = parse_document(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+    documents = parse_document(Path("Synthetic_Mortgage_Loan_File_TEST_01.pdf"))
     assert {d.metadata["extractor"] for d in documents} == {"pymupdf"}
     assert all(d.metadata["ocr_used"] is False for d in documents)
 
@@ -414,7 +414,7 @@ def test_parse_pdf_uses_pymupdf4llm_fallback_for_weak_pages(monkeypatch):
         lambda image, engine=None: ("ocr text", "tesseract"),
     )
 
-    documents = pdf_mod.parse_pdf(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+    documents = pdf_mod.parse_pdf(Path("Synthetic_Mortgage_Loan_File_TEST_01.pdf"))
 
     assert len(documents) == 12
     assert {d.metadata["extractor"] for d in documents} == {"pymupdf4llm"}
@@ -432,7 +432,7 @@ def test_parse_pdf_falls_back_to_ocr_when_all_text_insufficient(monkeypatch):
         lambda image, engine=None: ("ocr page text", "tesseract"),
     )
 
-    documents = pdf_mod.parse_pdf(Path("Synthetic_Mortgage_Loan_File_TEST.pdf"))
+    documents = pdf_mod.parse_pdf(Path("Synthetic_Mortgage_Loan_File_TEST_01.pdf"))
 
     assert len(documents) == 12
     assert {d.metadata["extractor"] for d in documents} == {"ocr"}
@@ -447,7 +447,7 @@ def test_parse_pdf_pymupdf4llm_engine_selected():
     from src.ingestion.parsers.pdf import parse_pdf
 
     documents = parse_pdf(
-        Path("Synthetic_Mortgage_Loan_File_TEST.pdf"), engine="pymupdf4llm"
+        Path("Synthetic_Mortgage_Loan_File_TEST_01.pdf"), engine="pymupdf4llm"
     )
 
     _assert_standard_schema(documents)

@@ -1,0 +1,29 @@
+# Eval toolchain for real-key runs (AI_Nexus evaluation phases B-F).
+# Pinned to the versions verified on Windows / Python 3.13, 2026-10-21.
+#
+#   pip install -r requirements.txt -r requirements-eval.txt
+#
+# Runtime downloads (NOT pip), needed once before a real run:
+#   * BGE embedder + ms-marco reranker  - pulled by the pipeline on first use
+#   * cross-encoder/nli-deberta-v3-base - ~700 MB, for `--nli`
+#   * evaluation/data/truthfulqa_generation.json - `truthfulqa --download-only`
+
+# --- real-judge RAGAS -------------------------------------------------------
+# ragas 0.4.3 has two metric families: only the *legacy* classes behind
+# ragas.metrics.__getattr__ pass evaluate()'s isinstance check; the modern
+# ragas.metrics.collections.* classes are rejected. evaluation/ragas_compat.py
+# implements that resolution, so the pin below is the ceiling (0.4.3 was the
+# newest release available), not an upgrade we skipped.
+ragas==0.4.3
+datasets==5.0.1          # TruthfulQA loader
+langchain==1.4.2         # LangchainLLMWrapper judge: ragas's own llm_factory
+langchain-community==0.4.2  # returns an InstructorLLM the legacy metrics
+langchain-openai==1.1.9     # cannot call (no agenerate_text)
+instructor==1.3.2
+
+# --- local encoders ---------------------------------------------------------
+# Shared by the pipeline (BGE embedder, ms-marco reranker) and the eval-only
+# NLI scorer; NLI weights are downloaded by sentence-transformers on first use.
+sentence-transformers==6.1.0
+transformers==5.17.0
+torch==2.14.0

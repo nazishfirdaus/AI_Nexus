@@ -14,6 +14,12 @@ evaluation/results.json
 
 evaluation/ragas_report.json
 
+evaluation/ragas_real.json
+
+evaluation/data/
+
+evaluation/truthfulqa_closed_book.json
+
 .pytest_cache/
 
 .coverage

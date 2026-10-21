@@ -149,6 +149,11 @@ TOP_K_RERANK = int(os.getenv("ANEXUS_TOP_K_RERANK", "5"))
 EMBEDDING_MODEL_NAME = os.getenv("ANEXUS_EMBEDDING_MODEL_NAME", "BAAI/bge-large-en")
 RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+# Optional local claim verification (evaluation only, opt-in via --nli).
+# MNLI-trained cross-encoder; first use downloads ~440 MB into the HF cache.
+NLI_MODEL_NAME = os.getenv("ANEXUS_NLI_MODEL_NAME", "cross-encoder/nli-deberta-v3-base")
+NLI_BATCH_SIZE = 16
+
 CHROMA_PERSIST_DIRECTORY = "chroma_db"
 COLLECTION_NAME = "anexus_rag_collection"
 
@@ -191,9 +196,17 @@ RETRIEVAL_MIN_SIMILARITY = _optional_float("ANEXUS_RETRIEVAL_MIN_SIMILARITY")
 # Cross-encoder score floor (raw logit from ms-marco MiniLM; higher = more relevant).
 RERANK_MIN_SCORE = _optional_float("ANEXUS_RERANK_MIN_SCORE")
 
-# LLM calls
-LLM_TIMEOUT_S = 30
-LLM_MAX_TOKENS = 700
+# LLM calls. Both are env-overridable.
+#
+# LLM_MAX_TOKENS: the NVIDIA default is a reasoning model whose chain-of-thought
+# is billed inside max_tokens - it routinely burns reasoning tokens before
+# emitting any visible content, so a 700-token cap returned `content: null` on
+# almost every question (nemotron-3-super-120b-a12b needed ~1k; the current
+# lightning-30b uses ~100-400). max_tokens is a cap, not a forced spend: the
+# model stops as soon as reasoning + answer finish, so a generous cap costs
+# nothing when the model answers promptly.
+LLM_TIMEOUT_S = float(os.getenv("ANEXUS_LLM_TIMEOUT_S", "30"))
+LLM_MAX_TOKENS = int(os.getenv("ANEXUS_LLM_MAX_TOKENS", "4096"))
 # Per-task sampling temperatures. Lower = more faithful/deterministic. QA stays
 # the most conservative; rewrite/summary default to the same value until tuned.
 # All three are env-overridable.
@@ -216,12 +229,16 @@ LLM_TEMPERATURE_SUMMARY = float(
 CONTEXT_MAX_CHARS = int(os.getenv("ANEXUS_CONTEXT_MAX_CHARS", "6000"))
 
 # Model id sent to each provider's API (override via env)
-# NOTE (2026-10): former defaults keep retiring -- NVIDIA meta/llama-3.1-70b
-# and meta/llama-3.3-70b-instruct are gone (HTTP 410); groq
-# llama-3.3-70b-versatile is gone. Current defaults verified live:
-# nvidia/nemotron-3-super-120b-a12b, gemini-3.8-flash, openai/gpt-oss-120b.
+# NOTE (2026-10-21): NVIDIA also *account*-gates retired models (HTTP 404
+# "Function ... Not found for account"), which the catalog list does not show:
+# meta/llama-3.1-70b, meta/llama-3.3-70b-instruct (410),
+# nemotron-3-super-120b-a12b, llama-3.1-nemotron-70b/ultra-253b, mistral-large-2
+# are all gone for this key; deepseek-v4.1-flash / z-ai/glm-5.3 time out.
+# groq llama-3.3-70b-versatile is gone. Current defaults verified live:
+# nvidia/nemotron-3.5-lightning-30b-a3b, gemini-3.8-flash (currently
+# timing out - keep a spare), openai/gpt-oss-120b.
 PROVIDER_MODELS = {
-    "nvidia": os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
+    "nvidia": os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b"),
     "gemini_flash": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     "groq": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
 }

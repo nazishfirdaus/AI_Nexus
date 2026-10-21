@@ -1,0 +1,111 @@
+name: RAG Evaluation (real keys, manual)
+
+# Deliberately manual (workflow_dispatch only): real provider calls spend
+# API quota (and money on paid keys), so this never runs on push/PR - the
+# automated gate stays on the simulated suite in rag-eval.yml.
+#
+# Required repository secrets: NVIDIA_API_KEY, GROQ_API_KEY
+# Optional: GEMINI_API_KEY (its model has been timing out; the fallback
+# chain simply skips it). Free-tier users: leave max_cost_usd at 0 and pin
+# one provider to stay inside its daily quota.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Questions per pass (0 = all 100)"
+        required: false
+        default: "100"
+      provider:
+        description: "Pin one provider, e.g. nvidia or groq (empty = fallback chain)"
+        required: false
+        default: ""
+      oracle:
+        description: "Also run the gold-context oracle pass"
+        type: boolean
+        required: false
+        default: true
+      nli:
+        description: "Post-scor rows with the local NLI model (separate process)"
+        type: boolean
+        required: false
+        default: false
+      max_cost_usd:
+        description: "Hard spend cap in USD (0 = uncapped; correct for free keys)"
+        required: false
+        default: "0"
+
+jobs:
+  eval:
+    name: Golden-set eval (real providers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system OCR library
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-eval.txt
+          python -m spacy download en_core_web_sm
+
+      - name: Cache Hugging Face model weights
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/torch
+          key: bge-nli-models-v1
+
+      - name: Preflight providers (one tiny call each)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python -m evaluation.provider_smoke
+
+      - name: End-to-end + oracle pass
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          provider_flag=""
+          if [ -n "${{ inputs.provider }}" ]; then
+            provider_flag="--provider ${{ inputs.provider }}"
+          fi
+          oracle_flag=""
+          if [ "${{ inputs.oracle }}" = "true" ]; then
+            oracle_flag="--oracle"
+          fi
+          python -m evaluation.run_eval \
+            --file Synthetic_Mortgage_Loan_File_TEST_01.pdf \
+            --file Synthetic_Mortgage_Loan_File_TEST_02.pdf \
+            --resume --min-interval-s 1 \
+            --max-cost-usd ${{ inputs.max_cost_usd }} \
+            --limit ${{ inputs.limit }} \
+            $provider_flag $oracle_flag \
+            --out evaluation/results.json
+
+      # Phase D runs in its own process: the NLI model must not share memory
+      # with the embedder (see evaluation/nli.py).
+      - name: NLI claim verification (post-hoc)
+        if: ${{ inputs.nli }}
+        run: python -m evaluation.nli --results evaluation/results.json
+
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-eval-real-results
+          path: evaluation/results.json
