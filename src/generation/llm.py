@@ -17,6 +17,7 @@ import os
 import time
 from abc import ABC
 from dataclasses import dataclass
+from typing import Callable, Optional
 
 import requests
 
@@ -45,12 +46,22 @@ class AllProvidersFailed(Exception):
 
 
 @dataclass
+class TokenUsage:
+    """Token counts reported by a provider for one call (0 when unreported)."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
 class LLMResponse:
     text: str
     provider: str
     model: str
     latency_s: float
     fallbacks_tried: list[str]
+    usage: Optional[TokenUsage] = None
 
 
 def _build_user_prompt(query: str, context: str) -> str:
@@ -80,13 +91,42 @@ class BaseAdapter(ABC):
     name: str
     supports_streaming: bool = False
 
-    def __init__(self, model: str, api_key: str | None, timeout: float = settings.LLM_TIMEOUT_S):
+    def __init__(self, model: str, api_key: str | None, timeout: float | None = None):
         self.model = model
         self.api_key = api_key
-        self.timeout = timeout
+        # Resolved at construction time: `timeout: float = settings.LLM_TIMEOUT_S`
+        # would be frozen when this module is first imported, so any later
+        # override of settings.LLM_TIMEOUT_S (eval --timeout-s, env-driven
+        # reloads) would silently not apply.
+        self.timeout = float(settings.LLM_TIMEOUT_S if timeout is None else timeout)
+        # Set by each chat() implementation; read by LLMHandler._run for cost
+        # accounting. None means the provider did not report usage.
+        self.last_usage: TokenUsage | None = None
 
     def is_configured(self) -> bool:
         return bool(self.api_key)
+
+    @staticmethod
+    def _openai_usage(data: dict) -> TokenUsage | None:
+        usage = data.get("usage") or {}
+        if not usage:
+            return None
+        return TokenUsage(
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or 0),
+            total_tokens=int(usage.get("total_tokens") or 0),
+        )
+
+    @staticmethod
+    def _gemini_usage(data: dict) -> TokenUsage | None:
+        usage = data.get("usageMetadata") or {}
+        if not usage:
+            return None
+        return TokenUsage(
+            prompt_tokens=int(usage.get("promptTokenCount") or 0),
+            completion_tokens=int(usage.get("candidatesTokenCount") or 0),
+            total_tokens=int(usage.get("totalTokenCount") or 0),
+        )
 
     def generate(
         self,
@@ -152,6 +192,7 @@ class OpenAICompatibleAdapter(BaseAdapter):
     supports_streaming = True
 
     def chat(self, messages: list[dict], temperature: float | None = None) -> str:
+        self.last_usage = None
         data = self._post(
             self.base_url,
             {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
@@ -162,10 +203,20 @@ class OpenAICompatibleAdapter(BaseAdapter):
                 "max_tokens": settings.LLM_MAX_TOKENS,
             },
         )
+        self.last_usage = self._openai_usage(data)
         try:
-            return data["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError, AttributeError) as e:
+            message = data["choices"][0]["message"]
+            text = message["content"]
+        except (KeyError, IndexError) as e:
             raise ProviderError(f"unexpected response shape: {str(data)[:200]}", self.name) from e
+        if text is None:
+            hint = (
+                " (reasoning model spent LLM_MAX_TOKENS on reasoning)"
+                if message.get("reasoning_content")
+                else ""
+            )
+            raise ProviderError(f"empty content{hint}: {str(data)[:200]}", self.name)
+        return text.strip()
 
     def chat_stream(self, messages: list[dict], temperature: float | None = None):
         payload = {
@@ -229,12 +280,14 @@ class GeminiAdapter(BaseAdapter):
         return payload
 
     def chat(self, messages: list[dict], temperature: float | None = None) -> str:
+        self.last_usage = None
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         data = self._post(
             url,
             {"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
             self._build_payload(messages, temperature),
         )
+        self.last_usage = self._gemini_usage(data)
         try:
             parts = data["candidates"][0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts).strip()
@@ -311,9 +364,20 @@ class LLMHandler:
         self,
         adapters: dict[str, BaseAdapter],
         quota_tracker: QuotaTracker | None = None,
+        on_response: Callable[[LLMResponse], None] | None = None,
     ) -> None:
         self.adapters = adapters
         self.quota = quota_tracker or QuotaTracker()
+        # Optional observer (e.g. the eval cost meter) notified on every
+        # successful call, including rewrite/expansion/summary, not just QA.
+        self.on_response = on_response
+
+    def _notify(self, response: LLMResponse) -> None:
+        if self.on_response is not None:
+            try:
+                self.on_response(response)
+            except Exception:  # a broken observer must never break generation
+                logger.exception("LLMHandler.on_response observer failed")
 
     @property
     def available_providers(self) -> list[str]:
@@ -433,13 +497,16 @@ class LLMHandler:
                 continue
 
             self.quota.record_success(name)
-            return LLMResponse(
+            response = LLMResponse(
                 text=text,
                 provider=name,
                 model=adapter.model,
                 latency_s=time.perf_counter() - start,
                 fallbacks_tried=tried[:-1],
+                usage=adapter.last_usage,
             )
+            self._notify(response)
+            return response
 
         raise AllProvidersFailed(errors)
 
@@ -542,11 +609,12 @@ _PROVIDER_KEY_FIELDS = {
 def build_handler(
     api_keys: dict[str, str | None],
     quota_tracker: QuotaTracker | None = None,
+    on_response: Callable[[LLMResponse], None] | None = None,
 ) -> LLMHandler:
     """Construct the handler from explicit per-provider keys (provider -> key)."""
     tracker = quota_tracker or QuotaTracker()
     if settings.SIMULATE_LLM:
-        return LLMHandler({"simulated": SimulatedAdapter()}, tracker)
+        return LLMHandler({"simulated": SimulatedAdapter()}, tracker, on_response)
 
     models = settings.PROVIDER_MODELS
     return LLMHandler(
@@ -556,18 +624,23 @@ def build_handler(
             "groq": GroqAdapter(models["groq"], api_keys.get("groq")),
         },
         tracker,
+        on_response,
     )
 
 
-def build_default_handler(quota_tracker: QuotaTracker | None = None) -> LLMHandler:
+def build_default_handler(
+    quota_tracker: QuotaTracker | None = None,
+    on_response: Callable[[LLMResponse], None] | None = None,
+) -> LLMHandler:
     """Construct the handler from environment variables (see .env.example)."""
     keys = {provider: os.getenv(env) for provider, (_, env) in _PROVIDER_KEY_FIELDS.items()}
-    return build_handler(keys, quota_tracker)
+    return build_handler(keys, quota_tracker, on_response)
 
 
 def build_handler_from_credentials(
     credentials: dict | None,
     quota_tracker: QuotaTracker | None = None,
+    on_response: Callable[[LLMResponse], None] | None = None,
 ) -> LLMHandler:
     """Build the handler from a user's stored credentials.
 
@@ -582,5 +655,5 @@ def build_handler_from_credentials(
         for provider, (field, _env) in _PROVIDER_KEY_FIELDS.items()
     }
     if any(user_keys.values()):
-        return build_handler(user_keys, quota_tracker)
-    return build_default_handler(quota_tracker)
+        return build_handler(user_keys, quota_tracker, on_response)
+    return build_default_handler(quota_tracker, on_response)

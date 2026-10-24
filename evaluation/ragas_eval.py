@@ -1,16 +1,16 @@
-"""Optional RAGAS evaluation over offline answer samples.
+"""Optional grounding report over offline answer samples.
 
-`ragas` is a heavy, network-hungry dependency, so this module stays opt-in:
+`ragas` is a heavy, network-hungry dependency, so this module stays opt-in and
+works without it: it re-scores the answers produced by ``run_eval.py`` with
+``evaluation.metrics.groundedness`` - a claim-level, sentence-aware token-F1
+against the retrieved snippets (the offline analogue of RAGAS faithfulness).
 
-    pip install ragas
     python -m evaluation.ragas_eval --input evaluation/results.json
 
-It reads the answers produced by run_eval.py and reports context relevance
-(lower bound: does the answer text overlap any fetched chunk?) plus basic
-token-level hallucination indicators -- all without calling an LLM again.
-
-A real RAGAS faithfulness run needs an LLM-armed evaluator and is intentionally
-deferred to environments that provision keys.
+``run_eval.py`` already reports the same per-row grounding; this script is the
+standalone way to recompute it from a saved ``results.json`` without re-running
+the pipeline. A real RAGAS faithfulness run needs an LLM-armed evaluator and is
+intentionally deferred to environments that provision keys.
 """
 from __future__ import annotations
 
@@ -19,18 +19,7 @@ import json
 from pathlib import Path
 
 from config import settings
-
-
-def context_overlap(answer: str, snippets: list[str]) -> float:
-    """Fraction of answer tokens that also appear in the retrieved snippets."""
-    if not snippets or not answer:
-        return 0.0
-    answer_tokens = {t.lower() for t in answer.split()}
-    corpus = " ".join(snippets).lower()
-    if not answer_tokens:
-        return 0.0
-    overlap = sum(1 for token in answer_tokens if token in corpus)
-    return round(overlap / len(answer_tokens), 4)
+from evaluation import metrics
 
 
 def main() -> None:
@@ -48,24 +37,31 @@ def main() -> None:
 
     per_id = []
     for row in rows:
-        snippets = row.get("source_snippets", [])
+        context = "\n".join(row.get("source_snippets", []))
+        ground = metrics.groundedness(row["answer_text"], context)
         per_id.append({
             "id": row["id"],
-            "context_overlap": context_overlap(row["answer_text"], snippets),
+            "groundedness": ground["score"],
+            "ungrounded_fraction": ground["ungrounded_fraction"],
+            "claims": ground["claims"],
             "answer_chars": len(row["answer_text"]),
-            "snippet_count": len(snippets),
+            "snippet_count": len(row.get("source_snippets", [])),
         })
 
     report = {
-        "framework": "text-overlap heuristic (offline; no RAGAS LLM judge enabled)",
+        "framework": "claim-level token-F1 vs retrieved snippets "
+                     "(offline; no RAGAS LLM judge enabled)",
         "config": {
             "rerank_top_k": settings.TOP_K_RERANK,
             "model": settings.EMBEDDING_MODEL_NAME,
         },
         "rows": per_id,
         "summary": {
-            "mean_context_overlap": round(
-                sum(r["context_overlap"] for r in per_id) / max(1, len(per_id)), 4
+            "mean_groundedness": round(
+                sum(r["groundedness"] for r in per_id) / max(1, len(per_id)), 4
+            ),
+            "mean_ungrounded_fraction": round(
+                sum(r["ungrounded_fraction"] for r in per_id) / max(1, len(per_id)), 4
             ),
         },
     }

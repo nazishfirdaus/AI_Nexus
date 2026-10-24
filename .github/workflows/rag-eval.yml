@@ -70,7 +70,9 @@ jobs:
         env:
           SIMULATE_LLM: "true"
         run: |
-          python -m evaluation.run_eval --file "Synthetic_Mortgage_Loan_File_TEST.pdf" \
+          python -m evaluation.run_eval \
+            --file "Synthetic_Mortgage_Loan_File_TEST_01.pdf" \
+            --file "Synthetic_Mortgage_Loan_File_TEST_02.pdf" \
             --out evaluation/results.json
 
       - name: Upload evaluation report

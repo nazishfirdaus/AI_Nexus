@@ -333,6 +333,23 @@ def test_timeout_setting_is_passed(monkeypatch):
     assert seen["timeout"] == 7
 
 
+def test_default_timeout_is_read_from_settings_at_construction(monkeypatch):
+    """A settings override must reach adapters built afterwards.
+
+    The old `timeout: float = settings.LLM_TIMEOUT_S` default was frozen at
+    module import, so eval-time overrides (e.g. `--timeout-s`) never applied.
+    """
+    from config import settings
+
+    monkeypatch.setattr(settings, "LLM_TIMEOUT_S", 61.0)
+    built = GroqAdapter("m", "K")
+    assert built.timeout == 61.0
+
+    monkeypatch.setattr(settings, "LLM_TIMEOUT_S", 5.0)
+    assert GroqAdapter("m", "K").timeout == 5.0
+    assert built.timeout == 61.0  # an existing adapter keeps its own value
+
+
 # ---------------- history payloads on real adapters ----------------
 def test_openai_payload_contains_history_and_summary(monkeypatch):
     seen = patch_post(monkeypatch, FakeResp(body={"choices": [{"message": {"content": "ok"}}]}))

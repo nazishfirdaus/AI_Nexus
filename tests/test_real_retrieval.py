@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-SAMPLE_PDF = ROOT / "Synthetic_Mortgage_Loan_File_TEST.pdf"
+SAMPLE_PDF = ROOT / "Synthetic_Mortgage_Loan_File_TEST_01.pdf"
 
 
 def test_end_to_end_real_retrieval(tmp_path):

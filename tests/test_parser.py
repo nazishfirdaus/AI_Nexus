@@ -4,7 +4,7 @@ from src.ingestion.parser import parse_pdf
 
 
 PDF_PATH = Path(
-    "Synthetic_Mortgage_Loan_File_TEST.pdf"
+    "Synthetic_Mortgage_Loan_File_TEST_01.pdf"
 )
 
 
@@ -22,12 +22,12 @@ def test_parse_pdf():
 
     assert (
         first_page.metadata["filename"]
-        == "Synthetic_Mortgage_Loan_File_TEST.pdf"
+        == "Synthetic_Mortgage_Loan_File_TEST_01.pdf"
     )
 
     assert (
         first_page.metadata["document_id"]
-        == "Synthetic_Mortgage_Loan_File_TEST.pdf"
+        == "Synthetic_Mortgage_Loan_File_TEST_01.pdf"
     )
 
     assert first_page.page_content != ""

@@ -17,7 +17,7 @@ from src.ingestion.parsers.common import (
     strip_markdown_artifacts,
 )
 
-PDF_PATH = Path("Synthetic_Mortgage_Loan_File_TEST.pdf")
+PDF_PATH = Path("Synthetic_Mortgage_Loan_File_TEST_01.pdf")
 
 
 # --------------------------------------------------------------- normalize_text

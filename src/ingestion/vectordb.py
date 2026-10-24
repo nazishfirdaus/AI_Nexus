@@ -104,7 +104,7 @@ class VectorDB:
         return self._collection
 
     def count(self) -> int:
-        return self._collection.count()
+        return _retry_on_pool_timeout(self._collection.count)
 
     def add_chunks(
         self,
@@ -192,11 +192,13 @@ class VectorDB:
     def delete_document(self, document_id: str) -> int:
         """Remove every chunk belonging to one document. Returns chunks removed."""
         try:
-            self._collection.delete(where={"document_id": document_id})
+            _retry_on_pool_timeout(
+                lambda: self._collection.delete(where={"document_id": document_id})
+            )
         except Exception:
             logger.exception("Could not delete chunks of document %s", document_id)
             raise
-        remaining = self._collection.count()
+        remaining = _retry_on_pool_timeout(self._collection.count)
         logger.info(
             "Deleted document %s from Chroma collection %s (%d chunk(s) left)",
             document_id,
@@ -208,7 +210,9 @@ class VectorDB:
     def document_ids(self) -> List[str]:
         """Distinct document_ids currently stored (used to reconcile the registry)."""
         try:
-            result = self._collection.get(include=["metadatas"])
+            result = _retry_on_pool_timeout(
+                lambda: self._collection.get(include=["metadatas"])
+            )
         except Exception:
             logger.exception("Could not read document ids from Chroma")
             return []
@@ -222,10 +226,14 @@ class VectorDB:
     def reset(self) -> None:
         """Drop the current collection and recreate it empty (new-document behavior)."""
         try:
-            self._client.delete_collection(self._collection_name)
+            _retry_on_pool_timeout(
+                lambda: self._client.delete_collection(self._collection_name)
+            )
         except Exception:
             logger.exception("Could not delete collection %s", self._collection_name)
-        self._collection = self._client.get_or_create_collection(self._collection_name)
+        self._collection = _retry_on_pool_timeout(
+            lambda: self._client.get_or_create_collection(self._collection_name)
+        )
         logger.info("Reset Chroma collection %s", self._collection_name)
 
     def get_all_documents(self) -> List[Document]:
