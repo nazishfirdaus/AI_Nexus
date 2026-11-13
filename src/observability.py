@@ -26,6 +26,8 @@ import sys
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
+logger = logging.getLogger(__name__)
+
 try:  # keep the app importable even in minimal environments
     import logfire
 except Exception:  # pragma: no cover - only when the optional dep is absent
@@ -151,18 +153,28 @@ def configure_observability(
         bool(settings.LOGFIRE_CONSOLE) if console is None else bool(console)
     )
 
+    # ``console`` accepts ConsoleOptions (logfire >= 3) or False, never a bool:
+    # passing True raises inside logfire.configure and used to be swallowed
+    # below, which silently disabled every span and log helper.
+    console_option: Any = resolved_console
+    console_options_cls = getattr(logfire, "ConsoleOptions", None)
+    if console_options_cls is not None:
+        console_option = console_options_cls() if resolved_console else False
+
     try:
         logfire.configure(
             token=resolved_token or None,
             send_to_logfire=bool(send_to_logfire),
             service_name=service_name or settings.LOGFIRE_SERVICE_NAME,
             environment=environment or settings.LOGFIRE_ENVIRONMENT,
-            console=resolved_console,
+            console=console_option,
             inspect_arguments=False,
             scrubbing=logfire.ScrubbingOptions(extra_patterns=_SCRUB_PATTERNS),
         )
-    except Exception:
-        # Observability must never prevent the app from starting.
+    except Exception as exc:
+        # Observability must never prevent the app from starting, but a silent
+        # failure here disables tracing entirely, so surface it.
+        logger.warning("Logfire configuration failed: %s", exc)
         return
 
     # Outbound HTTP spans: URLs/status only; never headers or bodies.
