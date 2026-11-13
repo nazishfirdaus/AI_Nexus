@@ -34,3 +34,10 @@ data/
 
 # Generated ingestion stats (CLI --json)
 processed_data/
+
+node_modules
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+DESIGN.md
+Document.md
