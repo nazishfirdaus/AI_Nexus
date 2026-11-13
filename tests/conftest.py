@@ -1,15 +1,15 @@
 """Shared pytest configuration.
 
 Real-model tests (marked `real_models` / the opt-in retrieval test) are excluded by
-default so CI and normal `pytest` runs never download the ~1.3 GB BGE model. Enable
-them locally with ANEXUS_RUN_REAL_TESTS=1.
+default so CI and normal `pytest` runs never download the ~1.3 GB local embedding
+model. Enable them locally with ANEXUS_RUN_REAL_TESTS=1.
 """
 import os
 
 import pytest
 
-# Keep Chroma from attempting anonymous telemetry (avoids network hangs in CI).
-os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+# Never export traces to Logfire from the test suite, even if .env has a token.
+os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "0")
 
 _RUN_REAL = os.getenv("ANEXUS_RUN_REAL_TESTS", "0") == "1"
 _REAL_SKIP_REASON = "real-model test; set ANEXUS_RUN_REAL_TESTS=1 to run it"

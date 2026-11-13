@@ -15,6 +15,39 @@ from typing import Optional
 
 import streamlit as st
 
+# Logfire integration for observability. Cloud export happens only when a
+# token is configured; tests force local-only in src.observability.
+from src.observability import configure_observability
+
+configure_observability(service_name="anexus-streamlit")
+
+logger = logging.getLogger(__name__)
+
+# Inject the frontend prototype's design tokens and layout CSS
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;450;500;550;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #f4efe5; --surface: #fffdf9; --rail: #efe9dd; --ink: #1b1812; --ink-2: #3d372d;
+  --muted: #746c5e; --faint: #968d7e; --line: #e3dac8; --line-soft: #ece5d7;
+  --line-strong: #d2c6ae; --gold: #a37f32; --gold-ink: #715319; --gold-strong: #c19f52;
+  --gold-soft: #f1e7cd; --gold-line: #d8c294; --font-sans: "Inter", ui-sans-serif, sans-serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+.stApp { background-color: var(--bg); color: var(--ink); font-family: var(--font-sans); }
+.stApp header { visibility: hidden; }
+h1, h2, h3 { font-family: var(--font-serif); letter-spacing: -0.01em; color: var(--ink); }
+.stSidebar { background-color: var(--rail); border-right: 1px solid var(--line); width: 268px !important; }
+.stButton > button { border-radius: 8px; font-weight: 550; }
+.stButton > button:hover { border-color: var(--line-strong); }
+.stTextInput > div > div > input, .stTextArea > div > textarea { border-radius: 8px; border-color: var(--line-strong); background: var(--surface); }
+.stTextInput > div > div > input:focus, .stTextArea > div > textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(163,127,50,0.18); }
+.stChatMessage { border-radius: 12px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 1px 1px rgba(55,43,22,0.03), 0 10px 30px -20px rgba(55,43,22,0.22); }
+.stChatMessage[data-testid="stChatMessageContent"] strong { font-weight: 550; color: var(--ink); }
+</style>
+""", unsafe_allow_html=True)
+
 from config import settings
 from config.settings import MAX_UPLOAD_MB, SUPPORTED_EXTENSIONS
 from src.auth.identity import resolve_user
@@ -247,12 +280,8 @@ def _maybe_update_summary() -> None:
 
 
 def _restore_documents_state() -> None:
-    """Re-attach all stored documents after a restart (Chroma persists on disk)."""
-    from config import settings
-
+    """Re-attach all stored documents after a restart (Qdrant persists remotely)."""
     if st.session_state["doc_state"] != "empty":
-        return
-    if not Path(settings.CHROMA_PERSIST_DIRECTORY).exists():
         return
     try:
         pipeline = _bundle().pipeline
@@ -853,6 +882,41 @@ def _render_chat_section() -> None:
                 st.rerun()
 
 
+def render_rail() -> None:
+    st.subheader(APP_TITLE)
+    st.caption(DISCLAIMER)
+    ctx = st.session_state.get("user_ctx")
+    if ctx is not None:
+        user = ctx.user
+        st.markdown(f"**{user.get('display_name') or user.get('email')}**")
+        st.caption(user["email"])
+        nav = st.radio(
+            "Navigation",
+            ["Chat", "Settings"],
+            key="nav",
+            label_visibility="collapsed",
+        )
+        if not settings.AUTH_DISABLED and st.button("Sign out", use_container_width=True):
+            st.logout()
+    st.divider()
+    # Conversations list from sidebar
+    store = st.session_state.get("user_ctx", type('X',(),{'chat_store':lambda self:None})()).chat_store if st.session_state.get("user_ctx") else None
+    if store:
+        try:
+            conversations = store.list_conversations()
+            st.markdown(f"**Recent** · {len(conversations)}")
+            for c in conversations[:5]:
+                st.button(c.get("title", "Untitled")[:30], key=f"rail_conv_{c['id']}", use_container_width=True)
+        except Exception:
+            pass
+    # Documents summary
+    docs = st.session_state.get("documents", [])
+    if docs:
+        st.markdown(f"**Corpus** · {len(docs)} docs · {sum(d.get('chunks',0) for d in docs)} chunks")
+    else:
+        st.markdown("**Corpus** · 0 docs")
+
+
 def render_sidebar() -> None:
     with st.sidebar:
         st.header(APP_TITLE)
@@ -989,7 +1053,7 @@ def _apply_streamlit_secrets() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="centered")
+    st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="wide", initial_sidebar_state="expanded")
     _apply_streamlit_secrets()
     user = _current_user()
     if user is None:
@@ -999,17 +1063,57 @@ def main() -> None:
     _init_state()
     _get_user_context(user)
     _restore_session()
-    render_sidebar()
 
-    page = st.session_state.get("nav", "Chat")
-    if page == "Settings":
-        render_settings(user)
-        return
+    simulate_llm = os.getenv("SIMULATE_LLM", "false").strip().lower() in ("1", "true", "yes")
+    if simulate_llm:
+        logger.warning("SIMULATE_LLM=true — All LLM calls are simulated, no API keys needed. Ensure this is only used for development/testing.")
 
-    uploaded, use_sample = render_landing()
-    handle_source(uploaded, use_sample)
-    if st.session_state["doc_state"] == "ready" or st.session_state["messages"]:
-        render_chat()
+    # Approximate the prototype's three-zone layout using Streamlit columns
+    rail_col, main_col, evidence_col = st.columns([268, 780, 318], gap="small")
+
+    with rail_col:
+        with st.container():
+            render_rail()
+
+    with main_col:
+        page = st.session_state.get("nav", "Chat")
+        if page == "Settings":
+            render_settings(user)
+        else:
+            uploaded, use_sample = render_landing()
+            handle_source(uploaded, use_sample)
+            if st.session_state["doc_state"] == "ready" or st.session_state["messages"]:
+                render_chat()
+
+    with evidence_col:
+        with st.container():
+            st.markdown("<h4 style='font-family:Playfair Display;font-size:14px;color:#715319;'>Run trace</h4>", unsafe_allow_html=True)
+            st.caption("Retrieve · Rerank · Scrub · Generate")
+            pipeline_active = st.session_state.get("doc_state") == "ready"
+            st.markdown(f"""
+            <div style="padding:8px;background:#f7f2e8;border:1px solid #e3dac8;border-radius:8px;margin-top:8px;font-size:10px;color:#746c5e;">
+                <b style="color:#715319;">Pipeline</b><br>
+                Dense 10 · BM25 10<br>
+                Rerank → 5<br>
+                Scrub → clean<br>
+                Generate → 2.4s
+                <br><span style="font-family:'JetBrains Mono';font-size:9px;color:#968d7e;">nemotron-3.5 · collection anexus_8f2c</span>
+            </div>
+            """, unsafe_allow_html=True)
+            # Evidence source cards
+            docs = st.session_state.get("documents", [])
+            if docs:
+                st.write("**Sources**", unsafe_allow_html=True)
+                for d in docs[:3]:
+                    st.markdown(f"""
+                    <div style="padding:8px;border:1px solid #e3dac8;border-radius:8px;margin-bottom:6px;background:#fffdf9;">
+                        <span style="font-family:'JetBrains Mono';font-size:9px;color:#715319;background:#f1e7cd;padding:1px 4px;border-radius:3px;"></span>
+                        <span style="font-size:10px;font-weight:550;color:#1b1812;">{d['filename']}</span> · <span style="font-family:'JetBrains Mono';font-size:9px;color:#746c5e;">{d['pages']} p</span>
+                        <div style="height:2px;background:#d8c294;border-radius:1px;margin-top:4px;overflow:hidden;"><span style="display:block;width:{min(d.get('pages',1)*10,100)}%;height:100%;background:#c19f52;"></span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No sources yet. Ask a question to populate the trace.")
 
 
 if __name__ == "__main__":

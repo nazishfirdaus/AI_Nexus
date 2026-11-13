@@ -23,6 +23,7 @@ import requests
 
 from config import settings
 from config.prompts import USER_PROMPT, build_system_prompt
+from src.observability import span
 from src.routing.quota_tracker import QuotaTracker
 
 logger = logging.getLogger(__name__)
@@ -401,20 +402,28 @@ class LLMHandler:
         if summary is not None and not isinstance(summary, ScrubbedText):
             raise TypeError("LLMHandler only accepts ScrubbedText for summary.")
 
-        if history or summary:
+        with span(
+            "llm.generate",
+            query_chars=len(str(query)),
+            context_chars=len(str(context)),
+            provider_order=",".join(provider_order),
+            has_history=bool(history),
+            has_summary=bool(summary),
+        ):
+            if history or summary:
+                return self._run(
+                    provider_order,
+                    lambda adapter: adapter.generate(
+                        str(query), str(context), history=history, summary=summary,
+                        temperature=temperature,
+                    ),
+                )
             return self._run(
                 provider_order,
                 lambda adapter: adapter.generate(
-                    str(query), str(context), history=history, summary=summary,
-                    temperature=temperature,
+                    str(query), str(context), temperature=temperature
                 ),
             )
-        return self._run(
-            provider_order,
-            lambda adapter: adapter.generate(
-                str(query), str(context), temperature=temperature
-            ),
-        )
 
     def generate_messages(
         self,
@@ -434,10 +443,15 @@ class LLMHandler:
                 raise TypeError(f"invalid message role: {message.get('role')!r}")
             if not isinstance(message.get("content"), ScrubbedText):
                 raise TypeError("LLMHandler only accepts ScrubbedText message content.")
-        return self._run(
-            provider_order,
-            lambda adapter: adapter.chat(messages, temperature=temperature),
-        )
+        with span(
+            "llm.generate_messages",
+            message_count=len(messages),
+            provider_order=",".join(provider_order),
+        ):
+            return self._run(
+                provider_order,
+                lambda adapter: adapter.chat(messages, temperature=temperature),
+            )
 
     def generate_stream(
         self,

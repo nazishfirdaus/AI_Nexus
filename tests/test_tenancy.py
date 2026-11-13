@@ -22,14 +22,15 @@ class FakeHandler:
 
 
 @pytest.fixture()
-def chroma_client(tmp_path, monkeypatch):
-    """Redirect the shared Chroma client to an in-memory store instead of ./chroma_db."""
-    import chromadb
+def qdrant_client(tmp_path, monkeypatch):
+    """Redirect the shared Qdrant client to a real in-memory instance."""
+    from qdrant_client import QdrantClient
 
-    client = chromadb.EphemeralClient()
-    monkeypatch.setattr(pipeline_factory, "get_chroma_client", lambda: client)
+    client = QdrantClient(location=":memory:")
+    monkeypatch.setattr(pipeline_factory, "get_qdrant_client", lambda: client)
     monkeypatch.setattr(settings, "USER_DATA_DIR", str(tmp_path / "users"))
-    return client
+    yield client
+    client.close()
 
 
 def _make_user_pipeline(user_id):
@@ -47,20 +48,20 @@ def test_collection_and_db_path_are_user_scoped():
     assert tenancy.user_data_dir("abc").endswith(os.path.join("users", "abc"))
 
 
-def test_build_user_pipeline_uses_user_namespaces(chroma_client):
+def test_build_user_pipeline_uses_user_namespaces(qdrant_client):
     bundle = _make_user_pipeline("userA")
     assert bundle.vector_db._collection_name == f"{settings.COLLECTION_NAME}__userA"
     assert bundle.document_store.db_path == tenancy.user_db_path("userA")
 
 
-def test_two_users_get_distinct_namespaces(chroma_client):
+def test_two_users_get_distinct_namespaces(qdrant_client):
     a = _make_user_pipeline("userA")
     b = _make_user_pipeline("userB")
     assert a.vector_db._collection_name != b.vector_db._collection_name
     assert a.document_store.db_path != b.document_store.db_path
 
 
-def test_documents_do_not_leak_between_users(chroma_client):
+def test_documents_do_not_leak_between_users(qdrant_client):
     a = _make_user_pipeline("userA")
     b = _make_user_pipeline("userB")
     a.pipeline.document_store.add("secret", "secret.pdf", pages=1, chunks=1, vectors=1)

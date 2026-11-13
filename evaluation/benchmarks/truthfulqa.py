@@ -24,7 +24,7 @@ Usage::
     python -m evaluation.benchmarks.truthfulqa --limit 50
     python -m evaluation.benchmarks.truthfulqa --simulate --limit 10
 
-Because no pipeline is built (no embedder / chroma / presidio), a run is
+Because no pipeline is built (no embedder / vector store / presidio), a run is
 light enough for the 4 GB eval box and only spends provider tokens.
 ``--simulate`` exercises the plumbing; the simulated adapter cannot pick a
 letter, so its accuracy is meaningless by design.

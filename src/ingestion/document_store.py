@@ -1,6 +1,6 @@
 """SQLite-backed registry of ingested documents.
 
-Chroma stores the chunks; this table stores the *documents themselves* so the
+Qdrant stores the chunks; this table stores the *documents themselves* so the
 UI can list them, show per-document stats and remove them individually. It
 lives in the same database as the chat store (settings.CHAT_DB_PATH) but owns
 only its own table.

@@ -32,22 +32,40 @@ logger = logging.getLogger(__name__)
 
 _PIPELINE: Optional[RAGPipeline] = None
 _PIPELINE_KEY: tuple = ()
-_CHROMA_CLIENT = None
+_QDRANT_CLIENT = None
 
 
-def get_chroma_client():
-    """One process-wide Chroma client; every tenant collection shares it.
+def get_qdrant_client():
+    """One process-wide Qdrant client; every tenant collection shares it.
 
-    Chroma namespaces tenants by collection name, so a single on-disk client can
-    back many isolated collections without reloading anything per user.
+    Qdrant namespaces tenants by collection name, so a single client can back
+    many isolated collections without reconnecting per user.
     """
-    global _CHROMA_CLIENT
-    if _CHROMA_CLIENT is None:
-        from chromadb import PersistentClient
+    global _QDRANT_CLIENT
+    if _QDRANT_CLIENT is None:
+        from qdrant_client import QdrantClient
 
-        _CHROMA_CLIENT = PersistentClient(path=settings.CHROMA_PERSIST_DIRECTORY)
-        logger.info("Opened shared Chroma client at %s", settings.CHROMA_PERSIST_DIRECTORY)
-    return _CHROMA_CLIENT
+        endpoint = (settings.QDRANT_URL or "").strip()
+        if not endpoint:
+            raise RuntimeError(
+                "Qdrant is the vector backend but no endpoint is set. "
+                "Set ANEXUS_QDRANT_URL (or QDRANT_URL / QDRANT_CLUSTER_ENDPOINT) and "
+                "QDRANT_API_KEY in .env."
+            )
+        _QDRANT_CLIENT = QdrantClient(
+            url=endpoint,
+            api_key=settings.QDRANT_API_KEY or None,
+            prefer_grpc=settings.QDRANT_PREFER_GRPC,
+            timeout=settings.QDRANT_TIMEOUT_S,
+        )
+        logger.info("Opened shared Qdrant client at %s", endpoint)
+    return _QDRANT_CLIENT
+
+
+def reset_clients() -> None:
+    """Drop the cached Qdrant client (tests / reconnect)."""
+    global _QDRANT_CLIENT
+    _QDRANT_CLIENT = None
 
 
 @dataclass
@@ -82,17 +100,17 @@ def build_pipeline(
     embedder=None,
     collection_name: Optional[str] = None,
     db_path: Optional[str] = None,
-    chroma_client=None,
+    qdrant_client=None,
 ) -> PipelineBundle:
     """Wire a complete pipeline, defaulting every part to the production component.
 
-    `collection_name` / `db_path` / `chroma_client` select a tenant namespace;
-    the defaults reproduce the original single-tenant behaviour.
+    ``collection_name`` / ``db_path`` / ``qdrant_client`` select a tenant
+    namespace; the defaults reproduce single-tenant behaviour.
     """
     from src.generation.aggregator import Aggregator
     from src.generation.llm import build_default_handler
     from src.ingestion.document_store import DocumentStore
-    from src.ingestion.vectordb import VectorDB
+    from src.ingestion.vectordb import build_vector_db
     from src.rag_pipeline import RAGPipeline, _build_default_chunker
     from src.redaction.presidio_scrubber import get_scrubber
     from src.retrieval.reranker import CrossEncoderReranker
@@ -101,9 +119,9 @@ def build_pipeline(
     from src.routing.semantic_router import SemanticRouter
 
     tracker = quota_tracker or QuotaTracker()
-    vec_db = vector_db or VectorDB(
+    vec_db = vector_db or build_vector_db(
         collection_name=collection_name or settings.COLLECTION_NAME,
-        client=chroma_client,
+        qdrant_client=qdrant_client,
     )
     rerank = reranker or CrossEncoderReranker()
     scrub = scrubber or get_scrubber()
@@ -155,10 +173,10 @@ def build_user_pipeline(
 ) -> PipelineBundle:
     """Build an isolated pipeline for one tenant.
 
-    Heavy models (BGE embedder, cross-encoder reranker, Presidio/spaCy) are
+    Heavy models (embedder, cross-encoder reranker, Presidio/spaCy) are
     process-cached inside their own modules and therefore shared automatically.
-    Only the namespace-bound pieces (Chroma collection, SQLite registry, BM25
-    index, LLM handler, quota state) are per user.
+    Only the namespace-bound pieces (vector-store collection, SQLite registry,
+    BM25 index, LLM handler, quota state) are per user.
     """
     from src.auth.tenancy import user_collection_name, user_db_path
     from src.generation.llm import build_handler_from_credentials
@@ -169,9 +187,9 @@ def build_user_pipeline(
     return build_pipeline(
         collection_name=user_collection_name(user_id),
         db_path=user_db_path(user_id),
-        chroma_client=get_chroma_client(),
         quota_tracker=tracker,
         llm_handler=handler,
+        qdrant_client=get_qdrant_client(),
         **build_kwargs,
     )
 

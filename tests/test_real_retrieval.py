@@ -1,8 +1,8 @@
 """Real local-model retrieval test (optional, NOT for CI).
 
-Runs the genuine BGE embedder + Chroma + cross-encoder against the synthetic mortgage
-PDF. The BGE model is large (~1.3 GB) and inference is CPU-bound, so this test is
-opt-in:
+Runs the genuine embedder + Qdrant + cross-encoder against the synthetic mortgage
+PDF. The local embedding model is large (~1.3 GB) and inference is CPU-bound, so
+this test is opt-in:
 
     ANEXUS_RUN_REAL_TESTS=1 python -m pytest tests/test_real_retrieval.py -q
 """
@@ -25,9 +25,10 @@ def test_end_to_end_real_retrieval(tmp_path):
         pytest.skip("synthetic sample PDF missing")
 
     from src.ingestion.chunker import Chunker
-    from src.ingestion.embedder import embed_documents, embed_query
+    from src.services.retrieval.embedding import embed_documents, embed_query
     from src.ingestion.parser import parse_pdf
-    from src.ingestion.vectordb import VectorDB
+    from qdrant_client import QdrantClient
+    from src.ingestion.qdrant_vectordb import QdrantVectorDB
     from src.retrieval.retriever import HybridRetriever
 
     pages = parse_pdf(SAMPLE_PDF)
@@ -39,10 +40,8 @@ def test_end_to_end_real_retrieval(tmp_path):
     vectors = embed_documents(chunks)
     assert len(vectors) == len(chunks)
 
-    store = VectorDB(
-        persist_directory=str(tmp_path / "chroma"),
-        collection_name="real_test_collection",
-    )
+    client = QdrantClient(location=":memory:")
+    store = QdrantVectorDB(collection_name="real_test_collection", client=client)
     store.add_chunks(chunks, vectors)
     assert store.count() == len(chunks)
 
@@ -55,3 +54,4 @@ def test_end_to_end_real_retrieval(tmp_path):
     sparse = retriever.bm25_retrieve("interest rate")
     assert sparse is not None  # empty only if no token overlap exists
     store.close()
+    client.close()

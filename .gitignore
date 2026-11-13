@@ -31,3 +31,6 @@ htmlcov/
 chat_db/
 auth_db/
 data/
+
+# Generated ingestion stats (CLI --json)
+processed_data/

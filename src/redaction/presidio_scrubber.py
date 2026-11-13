@@ -1,8 +1,9 @@
 """PII scrubbing with Microsoft Presidio. Runs locally; nothing leaves the machine.
 
 Position in the architecture: the security boundary sits between reranking and the
-cloud LLM. Ingestion, embeddings and ChromaDB are all local, so stored chunks keep
-their original text; ONLY text that is about to be sent to a provider is scrubbed.
+cloud LLM. Ingestion, embeddings and the vector store keep their original text, so
+stored chunks are not redacted; ONLY text that is about to be sent to a provider is
+scrubbed.
 Aggregator._scrub applies the same scrubber to the answer text and the page
 citation snippets, which are built from raw chunks and would otherwise be the one
 place unredacted PII reaches the screen.

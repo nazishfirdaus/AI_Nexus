@@ -1,7 +1,6 @@
-"""Qdrant Cloud vector store (production backend).
+"""Qdrant Cloud vector store.
 
-Same public interface as the legacy local Chroma store in
-:mod:`src.ingestion.vectordb`:
+Public interface:
 
   * ``add_chunks(documents, embeddings) -> int``
   * ``search(query_embedding, k, where=None) -> list[Document]``
@@ -13,9 +12,8 @@ Same public interface as the legacy local Chroma store in
 
 Design notes
 ------------
-* One Qdrant **collection per tenant** mirrors the old Chroma namespace scheme
-  (see ``src/auth/tenancy.py``): isolation is by construction, not by a filter
-  someone has to remember to apply.
+* One Qdrant **collection per tenant** (see ``src/auth/tenancy.py``): isolation
+  is by construction, not by a filter someone has to remember to apply.
 * Embeddings live in a single unnamed vector with **cosine** distance. The
   embedding provider can change (Gemini 3072-dim / local 768-dim), so the
   collection's dimension is discovered from the first write and every later
@@ -83,6 +81,14 @@ def _vector_size(info: Any) -> Optional[int]:
     return None
 
 
+class EmbeddingDimensionMismatch(ValueError):
+    """Raised when vectors do not match the collection's stored dimension.
+
+    Mixing dimensions inside one collection makes retrieval meaningless, so we
+    fail loudly instead of silently writing unusable vectors or wiping data.
+    """
+
+
 class QdrantVectorDB:
     """Qdrant Cloud implementation of the pipeline's vector-store contract."""
 
@@ -111,9 +117,9 @@ class QdrantVectorDB:
             endpoint = (url or settings.QDRANT_URL or "").strip()
             if not endpoint:
                 raise RuntimeError(
-                    "Qdrant is the configured vector backend but no endpoint is set. "
+                    "Qdrant is the vector backend but no endpoint is set. "
                     "Set ANEXUS_QDRANT_URL (or QDRANT_URL / QDRANT_CLUSTER_ENDPOINT) and "
-                    "QDRANT_API_KEY in .env, or switch ANEXUS_VECTOR_BACKEND=chroma."
+                    "QDRANT_API_KEY in .env."
                 )
             self._client = QdrantClient(
                 url=endpoint,
@@ -152,11 +158,11 @@ class QdrantVectorDB:
     def _validate_dim(self, dim: Optional[int]) -> None:
         if dim is None or self._dim is None or int(dim) == self._dim:
             return
-        raise ValueError(
-            f"Embedding dimension changed: collection '{self._collection_name}' stores "
-            f"{self._dim}-dim vectors but {int(dim)}-dim vectors were supplied. The "
-            "embedding provider/model changed, so the collection must be reset and the "
-            "corpus re-ingested (or point the pipeline at a new collection)."
+        raise EmbeddingDimensionMismatch(
+            f"Embedding dimension mismatch: collection '{self._collection_name}' "
+            f"stores {self._dim}-dim vectors but {int(dim)}-dim vectors were supplied. "
+            "The embedding model changed, so the collection must be reset and the "
+            "corpus re-ingested (python -m scripts.reset_vector_store --all-users)."
         )
 
     def _ensure_collection(self, dim: Optional[int] = None) -> bool:
@@ -242,7 +248,9 @@ class QdrantVectorDB:
 
         dim = len(vectors[0])
         if any(len(vector) != dim for vector in vectors):
-            raise ValueError("Embeddings have inconsistent dimensions")
+            raise EmbeddingDimensionMismatch(
+                "Embeddings have inconsistent dimensions within one batch"
+            )
 
         with span(
             "ingestion.qdrant.add_chunks",
@@ -354,12 +362,12 @@ class QdrantVectorDB:
     ) -> List[Document]:
         """Cosine k-NN search, optionally restricted by a metadata filter.
 
-        ``where`` keeps the Chroma-shaped contract used by the retriever
-        (``{"document_id": "x"}`` and, defensively, Chroma-style operators such
-        as ``{"page_number": {"$gte": 3}}``).
+        ``where`` maps metadata field names to values or operators, e.g.
+        ``{"document_id": "x"}`` or ``{"page_number": {"$gte": 3}}``.
         """
         if k <= 0:
             return []
+        query_vector = [float(v) for v in query_embedding]
         with span(
             "ingestion.qdrant.search",
             k=k,
@@ -369,10 +377,11 @@ class QdrantVectorDB:
             with self._lock:
                 if not self._ensure_collection():
                     return []
+                self._validate_dim(len(query_vector))
                 try:
                     response = self._client.query_points(
                         collection_name=self._collection_name,
-                        query=[float(v) for v in query_embedding],
+                        query=query_vector,
                         query_filter=self._build_filter(where),
                         limit=int(k),
                         with_payload=True,
@@ -476,11 +485,7 @@ class QdrantVectorDB:
 
         score = getattr(point, "score", None)
         if score is not None:
-            similarity = float(score)
-            meta["similarity"] = similarity
-            # Legacy Chroma-shaped field: unit vectors in L2 space give
-            # d = 2 - 2*cos, so the existing threshold code keeps working.
-            meta["distance"] = max(0.0, 2.0 - 2.0 * similarity)
+            meta["similarity"] = max(-1.0, min(1.0, float(score)))
 
         return Document(page_content=payload.get(_TEXT_KEY, "") or "", metadata=meta)
 
