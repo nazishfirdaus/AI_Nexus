@@ -1,7 +1,7 @@
-"""Pipeline construction.
+﻿"""Pipeline construction.
 
-`get_pipeline()` returns one lazily-shared RAGPipeline for the whole process (Streamlit
-only imports app.py once; this keeps embedding/reranking/spaCy models loaded once).
+`get_pipeline()` returns one lazily-shared RAGPipeline for the whole process, so
+the embedding, reranking and spaCy models load once per worker.
 `build_pipeline(...)` accepts test doubles for every heavyweight dependency.
 """
 from __future__ import annotations
@@ -195,7 +195,7 @@ def build_user_pipeline(
 
 
 def get_pipeline() -> PipelineBundle:
-    """Process-wide singleton. Reused across Streamlit reruns; models load once."""
+    """Process-wide singleton; models load once per worker."""
     global _PIPELINE, _PIPELINE_KEY
     if _PIPELINE is not None:
         return _PIPELINE

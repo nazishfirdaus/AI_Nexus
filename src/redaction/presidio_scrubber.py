@@ -1,4 +1,4 @@
-"""PII scrubbing with Microsoft Presidio. Runs locally; nothing leaves the machine.
+﻿"""PII scrubbing with Microsoft Presidio. Runs locally; nothing leaves the machine.
 
 Position in the architecture: the security boundary sits between reranking and the
 cloud LLM. Ingestion, embeddings and the vector store keep their original text, so
@@ -632,7 +632,7 @@ class PresidioScrubber:
         with self._lock:
             if self._analyzer is None:
                 # Presidio would otherwise try to download a missing model and then
-                # call sys.exit(), which would kill the whole Streamlit process.
+                # call sys.exit(), which would kill the whole server process.
                 import spacy.util
 
                 if not spacy.util.is_package(self.spacy_model):

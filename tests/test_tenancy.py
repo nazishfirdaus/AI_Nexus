@@ -1,13 +1,11 @@
-"""Tests for per-user isolation: namespaces, pipeline factory, identity, keys."""
+"""Tests for per-user isolation: namespaces, pipeline factory, keys."""
 import os
-from types import SimpleNamespace
 
 import pytest
 
 from config import settings
 from src import pipeline_factory
-from src.auth import identity, tenancy
-from src.auth.user_store import UserStore
+from src.auth import tenancy
 from src.generation import llm
 
 
@@ -68,42 +66,6 @@ def test_documents_do_not_leak_between_users(qdrant_client):
 
     assert [d["id"] for d in a.pipeline.list_documents()] == ["secret"]
     assert b.pipeline.list_documents() == []
-
-
-# ------------------------------------------------------------------ identity
-@pytest.fixture()
-def user_store(tmp_path):
-    return UserStore(db_path=str(tmp_path / "auth.sqlite3"))
-
-
-def test_extract_claims_from_object():
-    user = SimpleNamespace(is_logged_in=True, sub="s1", email="a@b.com", name="Alice")
-    assert identity.extract_claims(user) == {
-        "is_logged_in": True,
-        "sub": "s1",
-        "email": "a@b.com",
-        "name": "Alice",
-    }
-
-
-def test_resolve_user_none_when_logged_out(user_store):
-    user = SimpleNamespace(is_logged_in=False, email="a@b.com")
-    assert identity.resolve_user(user_store, user) is None
-
-
-def test_resolve_user_maps_to_account(user_store):
-    user_store.provision("a@b.com", display_name="Alice")
-    user = SimpleNamespace(is_logged_in=True, sub="s1", email="a@b.com", name="Alice")
-    resolved = identity.resolve_user(user_store, user)
-    assert resolved is not None
-    assert resolved["email"] == "a@b.com"
-
-
-def test_resolve_user_auto_provisions_unknown(user_store):
-    user = SimpleNamespace(is_logged_in=True, sub="s1", email="nobody@b.com", name="")
-    resolved = identity.resolve_user(user_store, user)
-    assert resolved is not None
-    assert resolved["email"] == "nobody@b.com"
 
 
 # ------------------------------------------------------------------ per-user keys

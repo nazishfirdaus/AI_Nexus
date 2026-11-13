@@ -5,10 +5,8 @@ uvicorn[standard]           # ASGI server to run the FastAPI app
 python-multipart            # multipart/form-data parsing for document uploads
 python-dotenv               # For loading configuration from .env files
 requests                    # HTTP library for internal/external API calls
-streamlit                   # Frontend dashboard for the chat interface
 numpy                       # Numerical processing
 pytz                        # Timezone handling for logs
-nest-asyncio                # Support for nested async loops in notebooks/streamlit
 
 
 # --- GEMINI EMBEDDINGS ---

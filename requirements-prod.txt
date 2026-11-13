@@ -1,6 +1,6 @@
 # ==============================================================================
 # PRODUCTION REQUIREMENTS — Cloud Run only (pinned versions from local venv)
-# Eval/local-only packages (ragas, deepeval, sentence-transformers, streamlit)
+# Eval/local-only packages (ragas, deepeval, sentence-transformers)
 # are excluded — they pull PyTorch and cause build timeouts.
 # Full local deps → requirements.txt
 # ==============================================================================

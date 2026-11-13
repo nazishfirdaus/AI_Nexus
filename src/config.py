@@ -1,4 +1,4 @@
-"""Agent-backend settings.
+﻿"""Agent-backend settings.
 
 The main application reads ``config/settings.py``. Shared values (Gemini + Qdrant)
 are imported from there so the two configs cannot drift; only the agent-only
@@ -66,7 +66,7 @@ class Settings:
 
 settings = Settings()
 
-# Agent-only side effect: keep LangChain tracing out of the Streamlit app.
+# Keep LangChain tracing off unless LangSmith is explicitly enabled.
 os.environ["LANGCHAIN_TRACING_V2"] = settings.LANGSMITH_TRACING
 os.environ["LANGCHAIN_API_KEY"] = settings.LANGSMITH_API_KEY or ""
 os.environ["LANGCHAIN_PROJECT"] = settings.LANGSMITH_PROJECT

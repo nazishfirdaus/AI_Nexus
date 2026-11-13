@@ -18,18 +18,20 @@ python -m venv .venv
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm # needed by the Presidio PII scrubber
 
-# Configure login + the credential vault (see below), then:
-streamlit run app.py                    # open the browser tab shown in the terminal
+# Terminal 1 — API
+uvicorn src.api.main:app --reload --port 8000
+
+# Terminal 2 — React client
+cd frontend
+npm install
+npm run dev                             # http://localhost:5173
 ```
 
-To run **without** an identity provider for local development, set
-`ANEXUS_AUTH_DISABLED=true` (and `ANEXUS_SECRET_KEY`); you are signed in as a
-local admin and the Settings/Admin pages work as normal.
+The client talks to the API through Vite's `/api` proxy; see
+[`frontend/README.md`](frontend/README.md) for `VITE_API_KEY` and tenant setup.
 
-> **Python version:** developed on **Python 3.13** (project venv). Streamlit Cloud
-> targets **Python 3.12**; the code is 3.10+-compatible and does not pin to 3.13-only
-> syntax, so both work. Runtime overhead from model loading is expected on low-RAM
-> machines (target: 4 GB RAM):
+> **Python version:** developed on **Python 3.13** (project venv). Runtime overhead
+> from model loading is expected on low-RAM machines (target: 4 GB RAM):
 
 | Startup cost           | Approx. time |
 |------------------------|--------------|
@@ -41,22 +43,16 @@ first use; Gemini embeddings are called remotely and download nothing.
 
 ## Authentication, users & isolation
 
-- **Login** uses Streamlit's native OIDC auth (`st.login` / `st.user`). Copy
-  `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` (gitignored) and
-  fill in an `[auth]` block (OAuth client id/secret, `cookie_secret`,
-  `server_metadata_url`) plus `ANEXUS_SECRET_KEY`.
-- **Provisioning is automatic.** Any identity that authenticates via OIDC is
-  auto-provisioned as a normal user on first login and immediately gets its own
-  isolated area. There are no roles or admin page. Accounts start active; an
-  account can still be disabled in the registry if you need to revoke access.
-- **Bring your own keys (BYOK).** Each user stores their own LLM provider keys and
-  S3 credentials on the **Settings** page. They are encrypted at rest (Fernet) and
-  never displayed again. A user's keys take precedence over any deployment-wide
-  env keys; with no keys saved, the deployment defaults (or the simulated LLM) are
-  used.
-- **Full per-user isolation.** Every account has its own Qdrant collection
+- **Tenant selection** is the `X-User-Id` request header, chosen in the client's
+  Settings page and stored in `localStorage`. When absent the API falls back to
+  `ANEXUS_DEV_USER_ID` (default `dev`).
+- **No authentication yet.** The header is trusted as-is: any client can claim any
+  tenant. Put an authenticating proxy (or OIDC) in front of the API before exposing
+  it beyond localhost; `X-User-Id` is the seam where the verified identity should be
+  injected.
+- **Full per-user isolation.** Every tenant has its own Qdrant collection
   (`<COLLECTION_NAME>__<user_id>`) and its own SQLite database
-  (`data/users/<id>/app.sqlite3`), so documents and chats can never leak across
+  (`data/users/<id>/app.sqlite3`), so documents and chats cannot leak across
   accounts. The embedding model, cross-encoder reranker and Presidio/spaCy stay
   process-shared to fit the RAM budget.
 
@@ -125,8 +121,8 @@ The embedder resolves lazily, so building a pipeline or a chunker never loads a 
 
 ## HTTP API (React backend)
 
-`src/api/` is a FastAPI app for the React client. It does not import Streamlit
-and does not serve the static prototype — point the React dev server at this API.
+`src/api/` is a FastAPI app that serves both the JSON API and the built React
+client.
 
 ```bash
 uvicorn src.api.main:app --reload --port 8000
@@ -134,7 +130,8 @@ uvicorn src.api.main:app --reload --port 8000
 python -m src.api
 ```
 
-OpenAPI docs: <http://localhost:8000/docs>.
+OpenAPI docs: <http://localhost:8000/docs>. When `frontend/dist` exists the API
+also serves the client at `/`, falling back to `index.html` for client routes.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -147,6 +144,10 @@ OpenAPI docs: <http://localhost:8000/docs>.
 | `GET` | `/api/documents` | Tenant corpus |
 | `GET` / `DELETE` | `/api/documents/{id}` | One document / remove its chunks + registry entry |
 | `POST` | `/api/documents` | Multipart upload + ingest |
+| `GET` | `/api/agent` | LangGraph nodes, edges and Mermaid source |
+| `POST` | `/api/agent/query` | Run planner → retriever → responder behind NeMo guardrails |
+| `GET` | `/api/eval/runs` | Evaluation artifacts in `evaluation/results*.json` |
+| `GET` | `/api/eval/runs/{name}` | One run's summary and rows |
 
 Each tenant gets `<collection_name>__<user_id>` in Qdrant and
 `data/users/<user_id>/app.sqlite3` for conversations and the document registry.
@@ -643,13 +644,12 @@ src/
   rag_pipeline.py       end-to-end orchestrator
   pipeline_factory.py   dependency wiring (test doubles supported)
 config/          prompts, settings, quota state
-.streamlit/      secrets.toml (gitignored) + secrets.toml.example (OIDC config)
+frontend/        React + Vite client (chat, library, agent, eval)
 auth_db/         user accounts + encrypted credentials (created at runtime, gitignored)
 data/            per-user SQLite databases (created at runtime, gitignored)
 chat_db/         legacy single-tenant SQLite registry (gitignored)
 evaluation/      golden dataset + harness
 tests/           pytest suite (fakes; real-model tests gated by ANEXUS_RUN_REAL_TESTS)
-app.py           Streamlit UI
 ```
 
 ## Troubleshooting

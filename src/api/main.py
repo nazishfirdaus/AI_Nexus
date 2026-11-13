@@ -9,8 +9,9 @@ or::
     python -m src.api
 
 The app exposes the RAG pipeline (``/api/chat``), the SQLite-backed
-conversation store (``/api/conversations``), message feedback, and the document
-library. It does not import Streamlit or ``app.py``.
+conversation store (``/api/conversations``), message feedback, the document
+library, the LangGraph agent (``/api/agent``) and the evaluation harness
+(``/api/eval``).
 """
 from __future__ import annotations
 

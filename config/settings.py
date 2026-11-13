@@ -1,4 +1,4 @@
-import os
+﻿import os
 from pathlib import Path
 
 # Load .env once, before any setting is read. The app and the standalone frontend
@@ -31,7 +31,7 @@ CHUNK_MAX_TOKENS = int(os.getenv("ANEXUS_CHUNK_MAX_TOKENS", "500"))
 CHUNK_TARGET_TOKENS = int(os.getenv("ANEXUS_CHUNK_TARGET_TOKENS", "384"))
 # Token overlap carried between consecutive chunks.
 CHUNK_OVERLAP_TOKENS = int(os.getenv("ANEXUS_CHUNK_OVERLAP_TOKENS", "64"))
-# Contextual chunk headers (optional). "meta" prepends a short "title · page N"
+# Contextual chunk headers (optional). "meta" prepends a short "title Â· page N"
 # header to the text that is *embedded* (improving retrieval of context-poor
 # chunks), while the stored chunk text stays clean for citations and the LLM.
 # "off" (default) embeds the chunk text unchanged. Needs re-embedding.
@@ -179,7 +179,7 @@ EMBEDDING_FALLBACK_DIM = int(os.getenv("ANEXUS_FALLBACK_EMBEDDING_DIM", "768"))
 EMBEDDING_BATCH_SIZE = int(os.getenv("ANEXUS_EMBEDDING_BATCH_SIZE", "50"))
 # Number of Gemini rate-limit retries before surfacing the error.
 EMBEDDING_MAX_RETRIES = int(os.getenv("ANEXUS_EMBEDDING_MAX_RETRIES", "4"))
-# When true, contextual "title · page N" headers are embedded with chunks.
+# When true, contextual "title Â· page N" headers are embedded with chunks.
 # (Existing CHUNK_CONTEXT_HEADER controls this; kept for discoverability.)
 
 RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -322,7 +322,7 @@ INTENT_PREFERRED_PROVIDER = {
 QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 # PII redaction (Presidio)
-SPACY_MODEL = "en_core_web_sm"   # small model: fits 4 GB RAM / Streamlit Cloud
+SPACY_MODEL = "en_core_web_sm"   # small model: fits a 4 GB RAM budget
 PII_SCORE_THRESHOLD = 0.4
 # Chunks overlap, so a label ("A/c No.") and the value it introduces can end up in
 # different chunks. This many trailing characters of each chunk are carried into the
@@ -346,8 +346,9 @@ PII_ENTITIES = [
 #               city name stays readable while "S/o X, H.No. 12, Lucknow - 226010"
 #               does not.
 
-# Quota tracker
-QUOTA_STATE_PATH = os.path.join(os.path.dirname(__file__), "streamlit_quota.json")
+# Quota tracker (state file is rebuilt from observed 429s; the old
+# "streamlit_quota.json" name predates the React client)
+QUOTA_STATE_PATH = os.path.join(os.path.dirname(__file__), "quota_state.json")
 RATE_LIMIT_COOLDOWN_S = 60
 ERROR_COOLDOWN_S = 20
 MAX_COOLDOWN_S = 900
@@ -391,16 +392,7 @@ USER_DATA_DIR = os.path.join(_PROJECT_ROOT, "data", "users")
 # stretched with SHA-256 into a 32-byte key. Only needed to save credentials.
 SECRET_KEY = os.getenv("ANEXUS_SECRET_KEY", "").strip()
 
-# Local development escape hatch: when true, skip OIDC and act as DEV_USER_EMAIL
-# (auto-provisioned as a normal user). NEVER enable this in a deployed environment.
-AUTH_DISABLED = os.getenv("ANEXUS_AUTH_DISABLED", "0").strip().lower() in ("1", "true", "yes")
-DEV_USER_EMAIL = os.getenv("ANEXUS_DEV_EMAIL", "dev@localhost").strip().lower()
-
-# Friendly provider name shown on the login screen (Streamlit reads the real
-# OIDC client config from the [auth] block in secrets.toml).
-AUTH_PROVIDER_NAME = os.getenv("ANEXUS_AUTH_PROVIDER_NAME", "Google").strip()
-
-# Any authenticated OIDC identity is auto-provisioned as a normal user.
+# Account states used by the user registry.
 ROLE_USER = "user"
 
 STATUS_ACTIVE = "active"

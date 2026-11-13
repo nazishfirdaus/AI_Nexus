@@ -1,6 +1,6 @@
 # ANexus frontend
 
-React + TypeScript client for the ANexus API (Vite build, no Streamlit).
+React + TypeScript client for the ANexus API (Vite build).
 
 ```bash
 cd frontend

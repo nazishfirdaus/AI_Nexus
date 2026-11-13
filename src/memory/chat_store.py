@@ -1,7 +1,7 @@
-"""SQLite-backed chat persistence: conversations and their messages.
+﻿"""SQLite-backed chat persistence: conversations and their messages.
 
 The store is deliberately dependency-free (stdlib sqlite3) and opens a fresh
-connection per operation so it is safe under Streamlit's threaded reruns.
+connection per operation so it is safe under concurrent requests.
 `db_path` is injectable so tests never touch the real database.
 
 Schema:
