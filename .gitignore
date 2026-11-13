@@ -25,8 +25,12 @@ frontend/.env.local
 frontend/.env.*.local
 
 # --- Evaluation ---
-# results*.json are committed on purpose: the React Eval view reads them.
-# Only bulky local inputs stay out of git.
+# results.json is the transient output of run_eval (--out default) and is
+# rewritten by every local run and CI pass, so it stays local.
+evaluation/results.json
+# The curated experiment records (results_baseline, results_allflags,
+# results_tokenaware, results_real_summary) are committed on purpose: the
+# React Eval view reads them.
 evaluation/data/
 
 # --- Local-only design notes ---

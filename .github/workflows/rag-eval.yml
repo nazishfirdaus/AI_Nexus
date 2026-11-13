@@ -2,7 +2,7 @@ name: RAG Evaluation Gate
 
 on:
   push:
-    branches: [main, ashfaque-development]
+    branches: [main, nazish-development, ashfaque-development]
   pull_request:
     branches: [main]
 
