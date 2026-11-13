@@ -1,41 +1,34 @@
+# --- Python ---
 .venv/
-
 __pycache__/
-
 *.pyc
-
-.env
-
-chroma_db/
-
-evaluation/results.json
-
-evaluation/ragas_report.json
-
-evaluation/ragas_real.json
-
-evaluation/data/
-
-evaluation/truthfulqa_closed_book.json
-
 .pytest_cache/
-
 .coverage
 htmlcov/
 
-*.log
-
+# --- Local config & secrets ---
+.env
 .vscode/
+
+# --- Runtime data (created on first use, never committed) ---
 chat_db/
 auth_db/
 data/
-
-# Generated ingestion stats (CLI --json)
 processed_data/
+*.log
 
+# --- Tooling caches ---
+.deepeval/
 node_modules
 frontend/dist/
 frontend/.env.local
 frontend/.env.*.local
+
+# --- Evaluation ---
+# results*.json are committed on purpose: the React Eval view reads them.
+# Only bulky local inputs stay out of git.
+evaluation/data/
+
+# --- Local-only design notes ---
 DESIGN.md
 Document.md
