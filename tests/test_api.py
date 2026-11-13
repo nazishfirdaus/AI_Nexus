@@ -346,3 +346,205 @@ def test_upload_ingests_the_file(client, bundle, tmp_path, monkeypatch):
     assert body["vectors_added"] == 1
     assert bundle.pipeline.uploaded == ["loan.txt"]
     assert not list((tmp_path / "uploads").iterdir())
+
+
+# ---------------------------------------------------------------- rate limiting
+def test_rate_limit_rejects_the_second_request(client, monkeypatch):
+    """The limiter is per client host across every /api router."""
+    monkeypatch.setattr(dependencies._limiter, "limit", 1)
+    dependencies._limiter.clear()
+    try:
+        assert client.get("/api/conversations").status_code == 200
+        assert client.get("/api/conversations").status_code == 429
+    finally:
+        dependencies._limiter.clear()
+
+
+# ----------------------------------------------------------------------- agent
+class _StubGraph:
+    def __init__(self, nodes, edges):
+        self.nodes = nodes
+        self.edges = edges
+
+    def draw_mermaid(self):
+        return "graph TD;\n  planner --> retriever;"
+
+
+class _StubAgent:
+    """Stands in for the compiled LangGraph agent."""
+
+    def __init__(self, state=None, *, raises=False):
+        from langgraph.checkpoint.memory import MemorySaver
+
+        self.checkpointer = MemorySaver()
+        self._state = state or {}
+        self._raises = raises
+        self.invoked = 0
+
+    def get_graph(self):
+        return _StubGraph(
+            {"planner": object(), "retriever": object(), "responder": object()},
+            [
+                ("__start__", "planner"),
+                ("planner", "retriever"),
+                ("planner", "responder"),
+                ("retriever", "responder"),
+                ("responder", "__end__"),
+            ],
+        )
+
+    def invoke(self, state, config=None):
+        self.invoked += 1
+        if self._raises:
+            raise RuntimeError("graph exploded")
+        return self._state
+
+
+def _use_agent(monkeypatch, stub):
+    from src.api.routers import agent as agent_router
+
+    monkeypatch.setattr(agent_router, "_agent", lambda: stub)
+    return agent_router
+
+
+def test_agent_info_reports_the_compiled_graph(client, monkeypatch):
+    stub = _StubAgent()
+    _use_agent(monkeypatch, stub)
+
+    response = client.get("/api/agent")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["nodes"] == ["planner", "retriever", "responder"]
+    assert body["entry_point"] == "planner"
+    assert body["checkpointer"] == type(stub.checkpointer).__name__
+    assert {"from_node": "planner", "to_node": "retriever"} in body["edges"]
+    assert "graph TD;" in body["mermaid"]
+    assert isinstance(body["guardrails_ready"], bool)
+
+
+def test_agent_query_runs_the_graph_behind_passing_guardrails(client, monkeypatch):
+    stub = _StubAgent(
+        {
+            "final_answer": "hello",
+            "plan": ["Intent: Technical", "Search Term: hi"],
+            "status": "Response generated.",
+            "documents": ["doc1"],
+        }
+    )
+    agent_router = _use_agent(monkeypatch, stub)
+    monkeypatch.setattr(agent_router, "_ensure_rails", lambda: True)
+    monkeypatch.setattr("src.guardrails.guard", lambda q: (False, None))
+
+    response = client.post("/api/agent/query", json={"q": "hi", "thread_id": "t1"})
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["answer"] == "hello"
+    assert body["status"] == "Response generated."
+    assert body["sources"] == ["doc1"]
+    assert body["thought_process"] == ["Intent: Technical", "Search Term: hi"]
+    assert body["guardrails"] == "passed"
+    assert stub.invoked == 1
+
+
+def test_agent_query_returns_blocked_response_without_running_the_graph(
+    client, monkeypatch
+):
+    stub = _StubAgent()
+    agent_router = _use_agent(monkeypatch, stub)
+    monkeypatch.setattr(agent_router, "_ensure_rails", lambda: True)
+    monkeypatch.setattr("src.guardrails.guard", lambda q: (True, "Blocked message"))
+
+    body = client.post("/api/agent/query", json={"q": "bad prompt"}).json()
+
+    assert body["status"] == "Blocked by guardrails."
+    assert body["answer"] == "Blocked message"
+    assert body["guardrails"] == "blocked"
+    assert body["sources"] == []
+    assert stub.invoked == 0
+
+
+def test_agent_query_runs_when_guardrails_are_unavailable(client, monkeypatch):
+    stub = _StubAgent({"final_answer": "ok", "plan": [], "status": "done", "documents": []})
+    agent_router = _use_agent(monkeypatch, stub)
+    monkeypatch.setattr(agent_router, "_ensure_rails", lambda: False)
+
+    body = client.post("/api/agent/query", json={"q": "hi"}).json()
+
+    assert body["guardrails"] == "unavailable"
+    assert body["answer"] == "ok"
+    assert stub.invoked == 1
+
+
+def test_agent_query_reports_a_failed_run(client, monkeypatch):
+    stub = _StubAgent(raises=True)
+    agent_router = _use_agent(monkeypatch, stub)
+    monkeypatch.setattr(agent_router, "_ensure_rails", lambda: False)
+
+    response = client.post("/api/agent/query", json={"q": "hi"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "error"
+    assert "failed" in body["answer"].lower()
+
+
+def test_agent_query_rejects_an_empty_question(client):
+    assert client.post("/api/agent/query", json={"q": ""}).status_code == 422
+
+
+# ------------------------------------------------------------------------ eval
+@pytest.fixture()
+def eval_dir(tmp_path, monkeypatch):
+    """Point the eval router at a synthetic evaluation/ directory."""
+    from src.api.routers import eval as eval_router
+
+    directory = tmp_path / "evaluation"
+    directory.mkdir()
+    (directory / "results.json").write_text(
+        json.dumps(
+            {
+                "summary": {"items": 2, "recall_at_k": 0.5},
+                "rows": [{"id": "q1", "recall_at_k": 1.0}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (directory / "results_multi.json").write_text(
+        json.dumps({"runs": [{"items": 4}, {"items": 6}]}), encoding="utf-8"
+    )
+    (directory / "notes.txt").write_text("ignored", encoding="utf-8")
+    monkeypatch.setattr(eval_router, "EVAL_DIR", directory)
+    return directory
+
+
+def test_eval_runs_lists_only_result_artifacts(client, eval_dir):
+    response = client.get("/api/eval/runs")
+    assert response.status_code == 200
+    names = [run["name"] for run in response.json()]
+
+    assert sorted(names) == ["results.json", "results_multi.json"]
+
+
+def test_eval_run_returns_rows_and_summary(client, eval_dir):
+    response = client.get("/api/eval/runs/results.json")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["items"] == 2
+    assert body["summary"]["recall_at_k"] == 0.5
+    assert body["rows"][0]["id"] == "q1"
+
+
+def test_eval_run_normalises_a_multi_run_artifact(client, eval_dir):
+    body = client.get("/api/eval/runs/results_multi.json").json()
+
+    assert body["items"] == 6
+    assert body["summary"] == {"runs": 2}
+    assert len(body["rows"]) == 2
+
+
+def test_eval_run_rejects_unknown_and_malformed_names(client, eval_dir):
+    # The name must look like results*.json to be considered at all.
+    assert client.get("/api/eval/runs/notes.txt").status_code == 400
+    assert client.get("/api/eval/runs/results_missing.json").status_code == 404
