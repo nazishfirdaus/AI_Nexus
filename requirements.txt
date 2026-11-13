@@ -16,6 +16,10 @@ langchain-google-genai      # LangChain integration for Gemini models
 # --- VECTOR DB & RETRIEVAL ---
 qdrant-client               # Vector Database for semantic search
 flashrank                   # Ultra-fast local cross-encoder for semantic reranking
+rank-bm25                   # BM25 lexical retrieval (src/retrieval/retriever.py)
+
+# --- LLM GATEWAY ---
+groq                        # Direct Groq client (src/gateway/client.py), used when OpenRouter is unset
 
 # --- LANGCHAIN & AGENTIC ORCHESTRATION ---
 langchain                   # Core LLM orchestration
@@ -69,6 +73,7 @@ langchain-nvidia-ai-endpoints # LangChain integration with NVIDIA AI Endpoints
 ragas                       # RAG-specific evaluation metrics (Faithfulness, Relevancy, Recall)
 deepeval                    # Pytest-compatible test runner wrapping RAGAS & safety metrics
 langfuse                    # Live production monitoring, tracing & user feedback collection
+pytest                      # Test runner (CI runs `python -m pytest`; also pulled in by ragas/deepeval)
 
 # --- EMBEDDINGS (SENTENCE TRANSFORMERS) ---
 sentence-transformers       # Local embedding fallback (all-mpnet-base-v2)
