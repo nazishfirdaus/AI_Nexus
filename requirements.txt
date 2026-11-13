@@ -22,10 +22,10 @@ flashrank                   # Ultra-fast local cross-encoder for semantic rerank
 # --- LANGCHAIN & AGENTIC ORCHESTRATION ---
 langchain                   # Core LLM orchestration
 langgraph                   # State-machine logic for cyclic agent flows
-langchain-groq              # Integration for lightning-fast Llama 3.3 models
+langchain-groq              # Integration for Groq chat models
 langchain-google-vertexai   # Required shim for NeMo Guardrails internal import (no GCP credentials needed)
 langchain-community         # Community-contributed tools and loaders
-langchain-openai            # OpenAI-compatible layer (used by Portkey gateway)
+langchain-openai            # OpenAI-compatible layer (used by OpenAI/NVIDIA endpoints)
 pydantic>=2.0.0             # Data validation and settings management
 
 
@@ -44,9 +44,6 @@ loguru                      # Enhanced logging for Python
 # --- GUARDRAILS ---
 nemoguardrails              # NVIDIA NeMo Guardrails for input/output safety rails
 langchain-nvidia-ai-endpoints # LangChain integration with NVIDIA AI Endpoints
-
-# --- LLM GATEWAY ---
-portkey-ai                  # Portkey Gateway for unified LLM routing, fallbacks & observability
 
 # --- EVALUATION (EVALS) ---
 ragas                       # RAG-specific evaluation metrics (Faithfulness, Relevancy, Recall)

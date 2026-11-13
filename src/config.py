@@ -2,7 +2,7 @@
 
 The main application reads ``config/settings.py``. Shared values (Gemini + Qdrant)
 are imported from there so the two configs cannot drift; only the agent-only
-Portkey/Groq/LangSmith keys live here.
+Groq/LangSmith keys live here.
 """
 import os
 
@@ -24,19 +24,40 @@ class Settings:
     QDRANT_COLLECTION = app_settings.QDRANT_COLLECTION
     COLLECTION_NAME = app_settings.COLLECTION_NAME
 
-    # --- Reasoning engine (agent-only) ---
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-    GROQ_FALLBACK_API_KEY = os.getenv("GROQ_FALLBACK_API_KEY")
+    # --- LLM gateway (agent-only; used when OPENROUTER_API_KEY is set) ---
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_BASE_URL = os.getenv(
+        "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+    )
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b")
+    OPENROUTER_FALLBACK_MODEL = os.getenv(
+        "OPENROUTER_FALLBACK_MODEL", "openai/gpt-oss-20b"
+    )
+    OPENROUTER_GUARD_MODEL = os.getenv(
+        "OPENROUTER_GUARD_MODEL", "openai/gpt-oss-20b"
+    )
+    OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "")
+    OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "ANexus")
+    OPENROUTER_CACHE_ENABLED = os.getenv(
+        "OPENROUTER_CACHE_ENABLED", "true"
+    ).lower() in {"1", "true", "yes", "on"}
+    try:
+        OPENROUTER_CACHE_TTL = int(os.getenv("OPENROUTER_CACHE_TTL", "300"))
+    except ValueError:
+        OPENROUTER_CACHE_TTL = 300
 
-    # --- LLM gateway (agent-only) ---
-    PORTKEY_API_KEY = os.getenv("PORTKEY_API_KEY")
-    GROQ_SLUG = os.getenv("ANEXUS_GROQ_SLUG", "rag")
-    GROQ_SLUG_2 = os.getenv("ANEXUS_GROQ_SLUG_2", "brag")
+    # --- Reasoning engine (direct Groq fallback when no gateway is configured) ---
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    GROQ_FALLBACK_API_KEY = os.getenv("GROQ_FALLBACK_API_KEY")
+    GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
+    GROQ_GUARD_MODEL = os.getenv("GROQ_GUARD_MODEL", "openai/gpt-oss-20b")
 
     # --- Observability (agent-only) ---
-    LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "true")
     LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
+    LANGSMITH_TRACING = os.getenv(
+        "LANGSMITH_TRACING", "true" if LANGSMITH_API_KEY else "false"
+    )
     LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "rag_scale_test")
     LANGSMITH_ENDPOINT = os.getenv(
         "LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"
