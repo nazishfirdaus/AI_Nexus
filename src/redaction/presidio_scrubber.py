@@ -48,11 +48,14 @@ try:
     from presidio_analyzer import (  # type: ignore
         EntityRecognizer, Pattern, PatternRecognizer, RecognizerResult,
     )
-except Exception:
-    EntityRecognizer = object  # type: ignore
-    Pattern = object  # type: ignore
-    PatternRecognizer = object  # type: ignore
-    RecognizerResult = object  # type: ignore
+except Exception as _presidio_import_error:  # pragma: no cover - exercised in CI
+    # Fail with a message that names the missing package. Falling back to
+    # ``object`` here produced "TypeError: object() takes no arguments" at
+    # class-body evaluation, which says nothing about the real cause.
+    raise ImportError(
+        "presidio-analyzer is required by src/redaction/presidio_scrubber.py. "
+        "Install it with: pip install presidio-analyzer presidio-anonymizer"
+    ) from _presidio_import_error
 
 # Stub torch/transformers before full Presidio import to avoid pulling heavy deps
 _stubs: list[str] = []

@@ -34,6 +34,28 @@ python-docx                 # Parser for Word documents
 pypdf                       # Local PDF text extraction (replaces Document AI)
 beautifulsoup4              # High-speed HTML text extraction
 pdfplumber                  # Fallback PDF parser for scanned/complex layouts
+pymupdf                     # Primary PDF parser (src/ingestion/parsers/pdf.py)
+pymupdf4llm                 # Optional weak-page / table fallback for PyMuPDF
+openpyxl                    # .xlsx parsing
+lxml                        # HTML/XML tree for bs4 and trafilatura
+trafilatura                 # Website importer: boilerplate-stripped main text
+pillow                      # Image handling for OCR and image pages
+
+# --- PII REDACTION (security boundary) ---
+presidio-analyzer           # PII detection (src/redaction/presidio_scrubber.py)
+presidio-anonymizer         # Anonymised spans returned by the scrubber
+spacy                       # Runtime for the Presidio NER model
+# Model itself is not a pip package: python -m spacy download en_core_web_sm
+
+# --- OCR (scanned pages and images) ---
+pytesseract                 # Tesseract bindings (needs the tesseract-ocr system package)
+rapidocr                    # RapidOCR fallback for Devanagari / low-quality scans
+
+# --- CLOUD STORAGE ---
+boto3                       # S3-compatible imports (AWS, MinIO, Cloudflare R2)
+
+# --- SECURITY ---
+cryptography                # Fernet encryption for the per-user credential vault
 # --- OBSERVABILITY & DISTRIBUTED TRACING ---
 langsmith                   # Specialized tracing for LangChain/LangGraph
 logfire[fastapi,requests,httpx]   # Pydantic Logfire — FastAPI/requests/httpx instrumentation
