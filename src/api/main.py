@@ -18,10 +18,12 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.observability import configure_observability
 
@@ -29,7 +31,15 @@ from src.observability import configure_observability
 configure_observability(service_name="anexus-api")
 
 from src.api.config import api_settings  # noqa: E402
-from src.api.routers import chat, conversations, documents, health, messages  # noqa: E402
+from src.api.routers import (  # noqa: E402
+    agent,
+    chat,
+    conversations,
+    documents,
+    eval as eval_router,
+    health,
+    messages,
+)
 from src.api.dependencies import get_pipeline  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -117,6 +127,10 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     app.include_router(conversations.router, prefix="/api")
     app.include_router(messages.router, prefix="/api")
     app.include_router(documents.router, prefix="/api")
+    app.include_router(agent.router, prefix="/api")
+    app.include_router(eval_router.router, prefix="/api")
+
+    _mount_frontend(app)
 
     @app.get("/", include_in_schema=False)
     def root() -> dict:
@@ -128,6 +142,39 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         }
 
     return app
+
+
+def _frontend_dist() -> Path:
+    """``frontend/dist`` as produced by ``npm run build``."""
+    return Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    """Serve the built React client, with an SPA fallback for client routes.
+
+    Without a build the API stays JSON-only, which is what the test-suite and
+    headless deployments expect.
+    """
+    dist = _frontend_dist()
+    index = dist / "index.html"
+    if not index.is_file():
+        logger.info("No frontend build at %s — serving the API only", dist)
+        return
+
+    assets = dist / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    resolved_dist = dist.resolve()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        if full_path.startswith(("api/", "docs", "redoc", "openapi.json")):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = (resolved_dist / full_path).resolve()
+        if candidate.is_file() and candidate.is_relative_to(resolved_dist):
+            return FileResponse(candidate)
+        return FileResponse(index)
 
 
 app = create_app()

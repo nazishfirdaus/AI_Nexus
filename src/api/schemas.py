@@ -107,3 +107,46 @@ class HealthOut(BaseModel):
     user_id: str
     collection: str
     qdrant_configured: bool
+
+
+# --- Agent (LangGraph planner / retriever / responder) ----------------------
+class AgentQuery(BaseModel):
+    q: str = Field(min_length=1, max_length=4000)
+    thread_id: str = Field(default="default_user", max_length=64)
+
+
+class AgentResponse(BaseModel):
+    question: str
+    answer: str
+    thought_process: list[str] = Field(default_factory=list)
+    status: str = ""
+    sources: list[str] = Field(default_factory=list)
+    guardrails: Literal["passed", "blocked", "unavailable"] = "passed"
+
+
+class AgentEdge(BaseModel):
+    from_node: str
+    to_node: str
+
+
+class AgentGraphOut(BaseModel):
+    """Static description of the compiled graph, introspected at request time."""
+    nodes: list[str]
+    edges: list[AgentEdge]
+    mermaid: str
+    entry_point: str
+    checkpointer: str
+    guardrails_ready: bool
+    corpus: str
+
+
+# --- Evaluation harness ----------------------------------------------------
+class EvalRunSummary(BaseModel):
+    name: str
+    modified_at: str
+    items: int = 0
+    summary: dict = Field(default_factory=dict)
+
+
+class EvalRun(EvalRunSummary):
+    rows: list[dict] = Field(default_factory=list)
