@@ -107,7 +107,11 @@ def agent_info() -> AgentGraphOut:
 async def agent_query(body: AgentQuery) -> AgentResponse:
     from src.guardrails import guard
 
-    if _ensure_rails():
+    # Report what actually happened on this request rather than reading the
+    # module global, which can diverge (e.g. a concurrent first run).
+    rails_ready = _ensure_rails()
+
+    if rails_ready:
         fired, rail_response = await run_in_threadpool(guard, body.q)
         if fired:
             return AgentResponse(
@@ -140,7 +144,7 @@ async def agent_query(body: AgentQuery) -> AgentResponse:
             thought_process=["Error during graph execution."],
             status="error",
             sources=[],
-            guardrails="unavailable" if not _rails_ready else "passed",
+            guardrails="passed" if rails_ready else "unavailable",
         )
 
     return AgentResponse(
@@ -149,5 +153,5 @@ async def agent_query(body: AgentQuery) -> AgentResponse:
         thought_process=list(final.get("plan") or []),
         status=final.get("status") or "",
         sources=[str(item) for item in (final.get("documents") or [])],
-        guardrails="passed" if _rails_ready else "unavailable",
+        guardrails="passed" if rails_ready else "unavailable",
     )
