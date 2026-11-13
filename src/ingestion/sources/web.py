@@ -34,6 +34,7 @@ import requests
 from langchain_core.documents import Document
 
 from config import settings
+from src.observability import hash_id, info, span
 
 logger = logging.getLogger(__name__)
 
@@ -145,28 +146,39 @@ def fetch_page(
     resolver: Optional[Callable[[str], bool]] = None,
 ) -> WebPage:
     """Download one page and extract its text. Raises WebSourceError on failure."""
-    validate_url(url, resolver=resolver)
-    get = get or _default_get
-    try:
-        response = get(url, headers={"User-Agent": settings.WEB_USER_AGENT}, timeout=timeout)
-        response.raise_for_status()
-    except WebSourceError:
-        raise
-    except Exception as exc:
-        raise WebSourceError(f"Could not fetch {url}: {exc}") from exc
+    with span(
+        "ingestion.sources.web.fetch_page",
+        host_hash=hash_id(urlparse(url).hostname),
+        max_bytes=max_bytes,
+    ):
+        validate_url(url, resolver=resolver)
+        get = get or _default_get
+        try:
+            response = get(url, headers={"User-Agent": settings.WEB_USER_AGENT}, timeout=timeout)
+            response.raise_for_status()
+        except WebSourceError:
+            raise
+        except Exception as exc:
+            raise WebSourceError(f"Could not fetch {url}: {exc}") from exc
 
-    raw = response.content or b""
-    if max_bytes is not None and len(raw) > max_bytes:
-        raw = raw[:max_bytes]
+        raw = response.content or b""
+        if max_bytes is not None and len(raw) > max_bytes:
+            raw = raw[:max_bytes]
 
-    content_type = (response.headers or {}).get("Content-Type", "")
-    if content_type and not any(t in content_type.lower() for t in _CONTENT_TYPES):
-        raise WebSourceError(f"Unsupported content type at {url}: {content_type}")
+        content_type = (response.headers or {}).get("Content-Type", "")
+        if content_type and not any(t in content_type.lower() for t in _CONTENT_TYPES):
+            raise WebSourceError(f"Unsupported content type at {url}: {content_type}")
 
-    text = extract_text(raw, url)
-    if not text:
-        raise WebSourceError(f"No readable text at {url}")
-    return WebPage(url=url, title=_html_title(raw, url), text=text, html=raw)
+        text = extract_text(raw, url)
+        if not text:
+            raise WebSourceError(f"No readable text at {url}")
+        info(
+            "Fetched web page",
+            host_hash=hash_id(urlparse(url).hostname),
+            bytes=len(raw),
+            chars=len(text),
+        )
+        return WebPage(url=url, title=_html_title(raw, url), text=text, html=raw)
 
 
 # ---------------------------------------------------------------------------
@@ -252,55 +264,70 @@ def crawl_documents(
     get = get or _default_get
     sleep = sleep or time.sleep
     max_pages = max_pages or settings.WEB_MAX_PAGES
-    validate_url(start_url, resolver=resolver)
-    robots = robots_check or RobotsGate(get, settings.WEB_USER_AGENT).can_fetch
-
     start_host = urlparse(start_url).hostname
-    document_id = site_document_id(start_url)
-    seen = {start_url}
-    queue: deque[str] = deque([start_url])
-    documents: list[Document] = []
-    site_title: Optional[str] = None
 
-    while queue and len(documents) < max_pages:
-        url = queue.popleft()
-        if not robots(url):
-            continue
-        try:
-            page = fetch_page(
-                url, get=get, timeout=timeout, max_bytes=max_bytes, resolver=resolver
-            )
-        except WebSourceError as exc:
-            logger.info("Skipping %s: %s", url, exc)
-            continue
+    with span(
+        "ingestion.sources.web.crawl_documents",
+        host_hash=hash_id(start_host),
+        max_pages=max_pages,
+        same_domain=same_domain,
+    ):
+        validate_url(start_url, resolver=resolver)
+        robots = robots_check or RobotsGate(get, settings.WEB_USER_AGENT).can_fetch
 
-        if site_title is None:
-            site_title = page.title
-        documents.append(
-            Document(
-                page_content=page.text,
-                metadata={
-                    "document_id": document_id,
-                    "filename": site_title,
-                    "source": url,
-                    "url": url,
-                    "page_number": len(documents) + 1,
-                },
+        document_id = site_document_id(start_url)
+        seen = {start_url}
+        queue: deque[str] = deque([start_url])
+        documents: list[Document] = []
+        site_title: Optional[str] = None
+
+        while queue and len(documents) < max_pages:
+            url = queue.popleft()
+            if not robots(url):
+                continue
+            try:
+                page = fetch_page(
+                    url, get=get, timeout=timeout, max_bytes=max_bytes, resolver=resolver
+                )
+            except WebSourceError as exc:
+                logger.info("Skipping page %s (%s)", hash_id(url), type(exc).__name__)
+                logger.debug("Skipping %s: %s", url, exc)
+                continue
+
+            if site_title is None:
+                site_title = page.title
+            documents.append(
+                Document(
+                    page_content=page.text,
+                    metadata={
+                        "document_id": document_id,
+                        "filename": site_title,
+                        "source": url,
+                        "url": url,
+                        "page_number": len(documents) + 1,
+                    },
+                )
             )
+            for link in _extract_links(page.html, url):
+                if link in seen:
+                    continue
+                if same_domain and urlparse(link).hostname != start_host:
+                    continue
+                seen.add(link)
+                queue.append(link)
+
+            if queue and len(documents) < max_pages:
+                sleep(delay)
+
+        info(
+            "Crawled site",
+            host_hash=hash_id(start_host),
+            pages=len(documents),
+            links_seen=len(seen),
+            document_id=document_id,
         )
-        for link in _extract_links(page.html, url):
-            if link in seen:
-                continue
-            if same_domain and urlparse(link).hostname != start_host:
-                continue
-            seen.add(link)
-            queue.append(link)
-
-        if queue and len(documents) < max_pages:
-            sleep(delay)
-
-    return CrawledSite(
-        documents=documents,
-        document_id=document_id,
-        title=site_title or (start_host or start_url),
-    )
+        return CrawledSite(
+            documents=documents,
+            document_id=document_id,
+            title=site_title or (start_host or start_url),
+        )

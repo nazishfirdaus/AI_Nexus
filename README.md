@@ -53,10 +53,11 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
   never displayed again. A user's keys take precedence over any deployment-wide
   env keys; with no keys saved, the deployment defaults (or the simulated LLM) are
   used.
-- **Full per-user isolation.** Every account has its own Chroma collection and its
-  own SQLite database (`data/users/<id>/app.sqlite3`), so documents and chats can
-  never leak across accounts. Heavy models (BGE embedder, cross-encoder reranker,
-  Presidio/spaCy) stay process-shared to fit the RAM budget.
+- **Full per-user isolation.** Every account has its own Qdrant collection
+  (`<COLLECTION_NAME>__<user_id>`) and its own SQLite database
+  (`data/users/<id>/app.sqlite3`), so documents and chats can never leak across
+  accounts. The embedding model, cross-encoder reranker and Presidio/spaCy stay
+  process-shared to fit the RAM budget.
 
 ## Supported formats
 
@@ -67,12 +68,17 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 | Word | `.docx` | python-docx; headings start a new citation page, tables rendered row-per-record |
 | Spreadsheet | `.xlsx`, `.csv` | openpyxl / csv; `Header: value` rows, 50 rows per citation page, one page series per sheet |
 | PowerPoint | `.pptx` | python-pptx; one citation page per slide (incl. tables and speaker notes) |
+| HTML | `.html`, `.htm` | BeautifulSoup; scripts/styles removed, body text becomes one citation page |
 | Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`, `.tiff` | Tesseract OCR (single page); optional RapidOCR fallback |
 
 Non-PDF formats have no real pages, so logical units (heading sections, slide
 numbers, sheet row blocks) act as pages — citations like "Page 3" mean slide 3
 or the third row block. A document's identity is its **full filename**, so
 `notes.pdf` and `notes.txt` coexist in one corpus.
+
+Every format is dispatched through `parse_document` in `src/ingestion/parsers/`,
+which returns page-level LangChain `Document`s with a shared metadata schema
+(`document_id`, `filename`, `page_number`, `source`, `ocr_used`).
 
 ## Other import sources
 
@@ -85,6 +91,36 @@ or the third row block. A document's identity is its **full filename**, so
   MinIO, Cloudflare R2) from the Settings page, then import every supported file
   under a prefix. Objects are streamed with a size cap; the same format parsers
   used for uploads handle the bytes.
+
+## Bulk ingestion (CLI)
+
+`src/ingestion/processor.py` ingests an existing folder through the same pipeline
+the app uses (parse → chunk → embed → Qdrant → SQLite registry → BM25):
+
+```bash
+python -m src.ingestion.processor Dataset --user-id <user_id>
+python -m src.ingestion.processor Dataset --user-id <user_id> --wipe
+python -m src.ingestion.processor Dataset --user-id <user_id> --json
+```
+
+Documents land in that user's collection (`<COLLECTION_NAME>__<user_id>`) and
+registry, so they appear in the app's Library. Chunk ids are deterministic
+(`<document_id>_p<page>_c<n>`) and mapped to stable Qdrant point ids (UUIDv5), so
+re-running the command overwrites chunks instead of duplicating them. `--wipe`
+clears that user's vectors and registry first; `--json` additionally mirrors ingest
+stats to `processed_data/<source_type>/`.
+
+## Services
+
+`src/services/retrieval/` contains the model-facing services:
+
+| Module | Purpose |
+|---|---|
+| `embedding.py` | Embedding provider: Gemini primary (`gemini-embedding-2-preview`, 3072-dim) with a local `sentence-transformers` fallback (768-dim). Exposes `embed_texts`, `embed_documents`, `embed_query`, `get_embedding_dim`, `get_embedding_model`, `get_active_model_info`, `token_length`. |
+| `qdrant_service.py` | Thin Qdrant query helper (`search_enterprise_knowledge`). |
+| `ranking_service.py` | Optional FlashRank reranker service. |
+
+The embedder resolves lazily, so building a pipeline or a chunker never loads a model.
 
 ## Optional higher-accuracy fallback engines
 
@@ -202,7 +238,8 @@ contexts survive the cross-encoder reranker.
 Two **optional, off-by-default** relevance floors can trim weak hits:
 
 - `ANEXUS_RETRIEVAL_MIN_SIMILARITY` — minimum cosine similarity for a dense hit
-  (derived from Chroma's squared-L2 distance for unit-length vectors: `cos = 1 - d/2`);
+  (Qdrant returns a cosine `score`; the legacy Chroma backend derives
+  `cos = 1 - d/2` from its squared-L2 distance);
 - `ANEXUS_RERANK_MIN_SCORE` — minimum cross-encoder logit.
 
 Both unset means no filtering; if every candidate falls below a floor the query
@@ -231,7 +268,8 @@ hybrid retrieval.
 
 The sidebar **Search in** selector restricts a question to a single ingested
 document (default: all documents). The scope is applied to *both* retrieval
-channels — Chroma's `where` filter for dense and a candidate filter for BM25 — so
+channels — a `document_id` metadata filter for dense (Qdrant/Chroma) and a
+candidate filter for BM25 — so
 fused results can only come from the chosen document. Selecting "All documents"
 keeps the default behavior. Removing the scoped document resets the selector to
 "All documents".
@@ -264,10 +302,11 @@ The evaluation harness reports `citation_support_rate` (share of model-cited
 
 Tunings that matter most once the corpus grows past a few hundred documents:
 
-- **Batched writes** — chunks are added to Chroma in batches
-  (`ANEXUS_CHROMA_ADD_BATCH_SIZE`, default 512) so large uploads stay within the
-  memory budget, and full-corpus reads paginate with offset
-  (`ANEXUS_CHROMA_GET_BATCH_SIZE`, default 1000).
+- **Batched writes** — chunks are upserted into Qdrant in batches
+  (`ANEXUS_QDRANT_ADD_BATCH_SIZE`, default 256) so large uploads stay within the
+  request budget, and full-corpus reads scroll in pages
+  (`ANEXUS_QDRANT_GET_BATCH_SIZE`, default 1000). The legacy local Chroma backend
+  keeps its `ANEXUS_CHROMA_*_BATCH_SIZE` settings.
 - **Incremental BM25** — adding a new document extends the in-memory keyword index
   with just that document's tokenized chunks instead of re-reading the whole
   vector store; re-ingests, removals and clears still rebuild fully for correctness.
@@ -332,7 +371,7 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
   summaries) are stored per user in SQLite under `data/users/<id>/app.sqlite3`.
   Conversations are not bound to a document: any chat can ask about any uploaded
   document. The sidebar lists, renames and deletes conversations; they survive
-  restarts and the uploaded documents are re-attached from the registry/Chroma
+  restarts and the uploaded documents are re-attached from the registry/vector store
   without re-uploading.
 - **Message feedback** - every assistant message carries thumbs up/down; the
   choice is persisted per message in SQLite (`feedback` column) and survives
@@ -482,8 +521,8 @@ Each answer is split into claims and checked against the retrieved context
 with `cross-encoder/nli-deberta-v3-base`, adding `nli_claim_count`,
 `nli_entailed_fraction` and `nli_contradiction_fraction` per row and to the
 summary. The scorer always runs in a **separate process**: resident next to
-the embedder, the ~700 MB model pushed this 4 GB box into paging - chroma's
-connection pool timed out on every query and rows took ~100x longer.
+the embedder, the ~700 MB model pushed this 4 GB box into paging - the vector
+store's connection pool timed out on every query and rows took ~100x longer.
 
 ### TruthfulQA (closed-book hallucination baseline)
 
@@ -521,7 +560,8 @@ requirements: `pip install -r requirements.txt -r requirements-eval.txt`.
 ```
 src/
   auth/          secrets vault (Fernet), user store (SQLite), tenant naming, OIDC claim resolution
-  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, CSV/XLSX, PPTX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
+  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, PPTX, HTML, CSV/XLSX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), vectordb (Qdrant Cloud, legacy Chroma opt-in), document_store (SQLite registry), processor.py (bulk-ingest CLI)
+  services/      retrieval/embedding.py (Gemini + local fallback), retrieval/qdrant_service.py, retrieval/ranking_service.py
   retrieval/     hybrid retriever (dense+BM25 RRF), query expander, cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker
@@ -543,9 +583,11 @@ app.py           Streamlit UI
 
 - **`ModuleNotFoundError: No module named 'nltk'` / slow `import langchain_text_splitters`** — not required; the chunker is self-contained. Do not add `langchain_text_splitters` to hot import paths.
 - **First query is slow** — the embedder/reranker/spaCy models load lazily once per process; subsequent turns are fast.
-- **Chroma lock errors on re-ingest** — only one process should write a user's
-  collection at a time; re-ingesting a document replaces that document's chunks,
-  and the sidebar's "Clear all documents" resets the store.
+- **Qdrant write failures on re-ingest** — confirm `ANEXUS_VECTOR_BACKEND=qdrant`
+  (the default) and that `ANEXUS_QDRANT_URL` / `ANEXUS_QDRANT_API_KEY` are set. If
+  the embedding model changed, the collection dimension no longer matches; reset
+  the user's collection and re-ingest. The legacy local Chroma backend
+  (`ANEXUS_VECTOR_BACKEND=chroma`) allows only one writer per collection.
 - **Missing spaCy model** — run `python -m spacy download en_core_web_sm`.
 
 ## License
