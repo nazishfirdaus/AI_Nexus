@@ -36,7 +36,8 @@ local admin and the Settings/Admin pages work as normal.
 | Presidio + spaCy       | ~35 s (once)  |
 | RAG pipeline cold import | ~2 min (once) |
 
-Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first use.
+The local embedding fallback (~420 MB) and MiniLM reranker (~90 MB) download on
+first use; Gemini embeddings are called remotely and download nothing.
 
 ## Authentication, users & isolation
 
@@ -121,6 +122,79 @@ stats to `processed_data/<source_type>/`.
 | `ranking_service.py` | Optional FlashRank reranker service. |
 
 The embedder resolves lazily, so building a pipeline or a chunker never loads a model.
+
+## HTTP API (React backend)
+
+`src/api/` is a FastAPI app for the React client. It does not import Streamlit
+and does not serve the static prototype — point the React dev server at this API.
+
+```bash
+uvicorn src.api.main:app --reload --port 8000
+# or
+python -m src.api
+```
+
+OpenAPI docs: <http://localhost:8000/docs>.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Tenant collection name + Qdrant configuration |
+| `POST` | `/api/chat` | Ask a question; persists the user + assistant messages |
+| `POST` | `/api/chat/stream` | Same, server-sent events (`meta`, `delta`, `done`/`error`) |
+| `GET` / `POST` | `/api/conversations` | List / create conversations |
+| `GET` / `PATCH` / `DELETE` | `/api/conversations/{id}` | Detail with messages / rename / delete |
+| `POST` | `/api/messages/{id}/feedback` | `{"value": "up" \| "down" \| null}` |
+| `GET` | `/api/documents` | Tenant corpus |
+| `GET` / `DELETE` | `/api/documents/{id}` | One document / remove its chunks + registry entry |
+| `POST` | `/api/documents` | Multipart upload + ingest |
+
+Each tenant gets `<collection_name>__<user_id>` in Qdrant and
+`data/users/<user_id>/app.sqlite3` for conversations and the document registry.
+The tenant comes from the `X-User-Id` header and defaults to `dev` locally.
+
+API settings (`.env`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANEXUS_CORS_ORIGINS` | Vite 5173/4173, 3000, 8000 | Browser origins allowed to call the API |
+| `ANEXUS_API_KEY` / `FRONTEND_API_KEY` | unset | When set, every `/api` route except `/api/health` requires `X-API-Key` |
+| `ANEXUS_API_RATE_LIMIT` | `120` | Requests per minute per client IP |
+| `ANEXUS_MAX_UPLOAD_MB` | `50` | Maximum document upload size |
+| `ANEXUS_DEV_USER_ID` | `dev` | Tenant used when `X-User-Id` is absent |
+| `ANEXUS_API_WARMUP` | `0` | Build the default tenant's pipeline at startup instead of on first request |
+
+```bash
+curl -H "X-API-Key: ${ANEXUS_API_KEY:-$FRONTEND_API_KEY}" \
+     -H "Content-Type: application/json" \
+     -d '{"message":"What is the loan amount?"}' \
+     http://localhost:8000/api/chat
+```
+
+## Embeddings & vector store
+
+| Setting | Value |
+|---|---|
+| Primary embedder | Google Gemini `models/gemini-embedding-2-preview`, 3072-dim |
+| Fallback embedder | Local `sentence-transformers` `all-mpnet-base-v2`, 768-dim |
+| Vector store | Qdrant Cloud (the only backend) |
+| Collection naming | `<COLLECTION_NAME>__<user_id>`, one per tenant |
+| Distance metric | Cosine (`models.Distance.COSINE`) |
+
+Provider selection is controlled by `ANEXUS_EMBEDDING_PROVIDER`:
+
+- `auto` (default) — probe Gemini once; use it when `GEMINI_API_KEY` is set and
+  the probe succeeds, otherwise fall back to the local model;
+- `gemini` — require Gemini and fail loudly if the key or probe fails;
+- `local` — skip the network probe and use the local model.
+
+Vectors are L2-normalised before upsert. The collection dimension is inferred
+from the first write (or fixed with `ANEXUS_QDRANT_VECTOR_DIM`); a mismatch with
+an existing collection raises `EmbeddingDimensionMismatch` instead of silently
+mixing vector spaces. Changing providers therefore requires resetting the
+collection and re-ingesting (`python -m scripts.reset_vector_store --all-users`).
+
+Chunk text and metadata live in the Qdrant payload; the SQLite registry stores
+the document list. Gemini only produces vectors — it stores nothing.
 
 ## Optional higher-accuracy fallback engines
 
@@ -238,8 +312,7 @@ contexts survive the cross-encoder reranker.
 Two **optional, off-by-default** relevance floors can trim weak hits:
 
 - `ANEXUS_RETRIEVAL_MIN_SIMILARITY` — minimum cosine similarity for a dense hit
-  (Qdrant returns a cosine `score`; the legacy Chroma backend derives
-  `cos = 1 - d/2` from its squared-L2 distance);
+  (Qdrant returns a cosine `score` in `0..1`);
 - `ANEXUS_RERANK_MIN_SCORE` — minimum cross-encoder logit.
 
 Both unset means no filtering; if every candidate falls below a floor the query
@@ -268,7 +341,7 @@ hybrid retrieval.
 
 The sidebar **Search in** selector restricts a question to a single ingested
 document (default: all documents). The scope is applied to *both* retrieval
-channels — a `document_id` metadata filter for dense (Qdrant/Chroma) and a
+channels — a `document_id` metadata filter for dense (Qdrant) and a
 candidate filter for BM25 — so
 fused results can only come from the chosen document. Selecting "All documents"
 keeps the default behavior. Removing the scoped document resets the selector to
@@ -305,18 +378,18 @@ Tunings that matter most once the corpus grows past a few hundred documents:
 - **Batched writes** — chunks are upserted into Qdrant in batches
   (`ANEXUS_QDRANT_ADD_BATCH_SIZE`, default 256) so large uploads stay within the
   request budget, and full-corpus reads scroll in pages
-  (`ANEXUS_QDRANT_GET_BATCH_SIZE`, default 1000). The legacy local Chroma backend
-  keeps its `ANEXUS_CHROMA_*_BATCH_SIZE` settings.
+  (`ANEXUS_QDRANT_GET_BATCH_SIZE`, default 1000).
 - **Incremental BM25** — adding a new document extends the in-memory keyword index
   with just that document's tokenized chunks instead of re-reading the whole
   vector store; re-ingests, removals and clears still rebuild fully for correctness.
 - **Unicode-aware tokens** — the BM25 tokenizer keeps numbers intact (`7.25`,
   `4,50,000`) and tokenizes accented/CJK/Devanagari text, so keyword recall works
   for non-English corpora even while the default English embedder is unchanged.
-- **Multilingual embeddings (optional)** — set `ANEXUS_EMBEDDING_MODEL_NAME` to a
-  multilingual model (e.g. `BAAI/bge-m3` or `jinaai/jina-embeddings-v3`). Note the
-  vector store is not re-embedded automatically; choose before a large ingestion
-  or rebuild afterwards.
+- **Multilingual embeddings (optional)** — set `ANEXUS_EMBEDDING_PROVIDER=local`
+  and `ANEXUS_FALLBACK_EMBEDDING_MODEL` to a multilingual model (e.g.
+  `BAAI/bge-m3` or `jinaai/jina-embeddings-v3`). Note the vector store is not
+  re-embedded automatically; choose before a large ingestion or reset and rebuild
+  afterwards.
 - **Content-hash dedup** — every document is fingerprinted (file bytes for
   uploads, deterministic page-text hash for web/cloud sources). Uploading the same
   content under a different name either informs the user and skips
@@ -349,7 +422,7 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 - **Accounts & roles** — OIDC login with an admin-managed allowlist; admins
   provision users and manage roles/status from the Admin page. Each account's
   documents, chats, and credentials are fully isolated.
-- **Hybrid retrieval** — dense (BGE-large) + BM25 fused with Reciprocal Rank Fusion, then a local cross-encoder rereank.
+- **Hybrid retrieval** — dense (Gemini embeddings, local fallback) + BM25 fused with Reciprocal Rank Fusion, then a local cross-encoder rereank.
 - **PII security gate** — a Presidio scrubber with custom Indian recognizers removes identifying tokens before any LLM call: names (including honorific-matched Indian names), addresses, phone, email, PAN, Aadhaar, voter ID, driving licence, passport, TAN, plus bank and loan account numbers, IFSC, MICR, GSTIN, UPI/VPA, cheque, policy and application numbers. Dates and bare city names are kept — loan and property answers depend on them — while the pinpoint parts of an address are not. The same scrubber also cleans the answer text and the page citation snippets, which are built from the unredacted stored chunks.
 - **Label-anchored account numbers** — an Indian account number is 8–20 bare digits, indistinguishable from a loan amount, so those patterns require a label ("A/c no.", "Loan A/c", "Cheque no.") next to the value. Because chunk boundaries can split a label from its value, each chunk is scrubbed with the tail of the previous one as matching context.
 - **Semantic routing** — the query intent picks the first provider; the rest of the chain follows the configured fallback order, so a provider outage degrades gracefully instead of failing.
@@ -391,10 +464,10 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 533 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
+python -m pytest -q          # 639 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
 ```
 
-Real-model tests (BGE embedder, live retrieval) can be run locally with:
+Real-model tests (local embedder, live retrieval) can be run locally with:
 
 ```bash
 $env:ANEXUS_RUN_REAL_TESTS=1
@@ -435,8 +508,8 @@ context recall (fraction of gold answer points present in the retrieved context)
 curated literal answer points, citation precision/coverage, **groundedness**
 (claim-level token-overlap of each answer sentence against the retrieved
 context — an offline stand-in for RAGAS faithfulness), and **answer relevance**
-(cosine similarity between the answer and the golden answer using the existing
-BGE embedder). Safety is measured as PII-leak rate.
+(cosine similarity between the answer and the golden answer using the configured
+embedder). Safety is measured as PII-leak rate.
 
 **Retrieval vs generation attribution:** `--oracle` re-answers every question
 with the gold pages injected as context (retrieval bypassed). A high oracle
@@ -560,7 +633,7 @@ requirements: `pip install -r requirements.txt -r requirements-eval.txt`.
 ```
 src/
   auth/          secrets vault (Fernet), user store (SQLite), tenant naming, OIDC claim resolution
-  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, PPTX, HTML, CSV/XLSX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), vectordb (Qdrant Cloud, legacy Chroma opt-in), document_store (SQLite registry), processor.py (bulk-ingest CLI)
+  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, PPTX, HTML, CSV/XLSX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), vectordb (Qdrant Cloud factory), qdrant_vectordb (Qdrant store), document_store (SQLite registry), processor.py (bulk-ingest CLI)
   services/      retrieval/embedding.py (Gemini + local fallback), retrieval/qdrant_service.py, retrieval/ranking_service.py
   retrieval/     hybrid retriever (dense+BM25 RRF), query expander, cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
@@ -583,11 +656,10 @@ app.py           Streamlit UI
 
 - **`ModuleNotFoundError: No module named 'nltk'` / slow `import langchain_text_splitters`** — not required; the chunker is self-contained. Do not add `langchain_text_splitters` to hot import paths.
 - **First query is slow** — the embedder/reranker/spaCy models load lazily once per process; subsequent turns are fast.
-- **Qdrant write failures on re-ingest** — confirm `ANEXUS_VECTOR_BACKEND=qdrant`
-  (the default) and that `ANEXUS_QDRANT_URL` / `ANEXUS_QDRANT_API_KEY` are set. If
-  the embedding model changed, the collection dimension no longer matches; reset
-  the user's collection and re-ingest. The legacy local Chroma backend
-  (`ANEXUS_VECTOR_BACKEND=chroma`) allows only one writer per collection.
+- **Qdrant write failures on re-ingest** — confirm `ANEXUS_QDRANT_URL` /
+  `ANEXUS_QDRANT_API_KEY` are set. If the embedding model changed, the collection
+  dimension no longer matches; reset the user's collection
+  (`python -m scripts.reset_vector_store --all-users`) and re-ingest.
 - **Missing spaCy model** — run `python -m spacy download en_core_web_sm`.
 
 ## License

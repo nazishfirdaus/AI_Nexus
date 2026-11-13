@@ -216,6 +216,18 @@ class ChatStore:
             messages.append(item)
         return messages
 
+    def get_message(self, message_id: int) -> Optional[dict]:
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM messages WHERE id = ?", (int(message_id),)
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        raw = item.pop("citations", None)
+        item["citations"] = json.loads(raw) if raw else None
+        return item
+
     def message_count(self, conversation_id: str) -> int:
         with self._lock, self._connection() as conn:
             row = conn.execute(
