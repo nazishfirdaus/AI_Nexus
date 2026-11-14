@@ -230,12 +230,37 @@ class GroqLLMClient:
             )
 
 
-if settings.OPENROUTER_API_KEY:
-    llm_client = OpenRouterLLMClient()
-elif settings.GROQ_API_KEY:
-    llm_client = GroqLLMClient()
-else:
+def _build_client():
+    """Pick a provider client, or explain what to configure."""
+    if settings.OPENROUTER_API_KEY:
+        return OpenRouterLLMClient()
+    if settings.GROQ_API_KEY:
+        return GroqLLMClient()
     raise RuntimeError(
         "Set OPENROUTER_API_KEY (gateway) or GROQ_API_KEY (direct) "
         "to run the agent backend."
     )
+
+
+class _LazyLLMClient:
+    """Proxy that builds the provider client on first use.
+
+    Constructing eagerly at import time meant importing this module required a
+    key, which made the whole agent path un-importable in environments that
+    only need part of it (tests, the API's health route, guardrail-only paths).
+    The error is still raised, but only when a completion is actually attempted.
+    """
+
+    def __init__(self) -> None:
+        self._client = None
+
+    def _resolve(self):
+        if self._client is None:
+            self._client = _build_client()
+        return self._client
+
+    def __getattr__(self, item: str):
+        return getattr(self._resolve(), item)
+
+
+llm_client = _LazyLLMClient()
