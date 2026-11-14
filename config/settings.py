@@ -332,9 +332,9 @@ PII_ENTITIES = [
     # Presidio built-ins
     "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "IP_ADDRESS",
     "US_SSN", "US_BANK_NUMBER", "IBAN_CODE",
-    # Indian identity
-    "PAN_NUMBER", "AADHAAR_NUMBER", "IN_PERSON_NAME", "IN_ADDRESS", "IN_PINCODE",
-    "VOTER_ID", "DL_NO", "PASSPORT_NO",
+    # Identity / postal addresses
+    "PAN_NUMBER", "AADHAAR_NUMBER", "IN_PERSON_NAME", "IN_ADDRESS", "US_ADDRESS",
+    "IN_PINCODE", "VOTER_ID", "DL_NO", "PASSPORT_NO",
     # Indian financial
     "IN_ACCOUNT_NO", "IN_LOAN_NO", "IFSC_CODE", "MICR_CODE", "GSTIN", "UPI_ID",
     "CHEQUE_NO", "POLICY_NO", "TAN_NUMBER", "APPLICATION_ID",
@@ -342,9 +342,9 @@ PII_ENTITIES = [
 # Deliberately NOT redacted:
 #   DATE_TIME - loan answers are about due dates, tenures and disbursement schedules.
 #   LOCATION - property and borrower city are facts the user asked for. The precise
-#               parts of an address are covered by IN_ADDRESS instead, so a bare
-#               city name stays readable while "S/o X, H.No. 12, Lucknow - 226010"
-#               does not.
+#               parts of an address are covered by IN_ADDRESS and US_ADDRESS instead,
+#               so a bare city name stays readable while "S/o X, H.No. 12, Lucknow -
+#               226010" or "1847 Willow Creek Drive, Austin, TX 78745" does not.
 
 # Quota tracker (state file is rebuilt from observed 429s; the old
 # "streamlit_quota.json" name predates the React client)
@@ -378,6 +378,19 @@ STREAMING_ENABLED = (
 )
 STREAM_SCRUB_TAIL_CHARS = int(os.getenv("ANEXUS_STREAM_SCRUB_TAIL_CHARS", "120"))
 
+# ---- Response cache (answers + LLM generations) -----------------------------
+# Exact-match cache for repeated questions under the same tenant/corpus/history.
+# The memory layer is always used; set ANEXUS_REDIS_URL to share entries across
+# workers (Cloud Run, multiple Uvicorn workers). Cache hits skip retrieval and
+# generation, so TTL should stay short enough that corpus changes are picked up
+# quickly. Corpus changes also change the key automatically.
+CACHE_ENABLED = os.getenv(
+    "ANEXUS_CACHE_ENABLED", "1"
+).strip().lower() in ("1", "true", "yes", "on")
+CACHE_TTL_S = int(os.getenv("ANEXUS_CACHE_TTL_S", "300"))
+CACHE_MAX_ENTRIES = int(os.getenv("ANEXUS_CACHE_MAX_ENTRIES", "1024"))
+CACHE_REDIS_URL = os.getenv("ANEXUS_REDIS_URL", "").strip()
+
 # ============================================================================
 # Auth / multi-tenancy (login + full per-user isolation)
 # ============================================================================
@@ -387,6 +400,10 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 AUTH_DB_PATH = os.path.join(_PROJECT_ROOT, "auth_db", "auth.sqlite3")
 # One directory per user holding that user's documents + chats SQLite file.
 USER_DATA_DIR = os.path.join(_PROJECT_ROOT, "data", "users")
+# Extra directories to search when a legacy registry row has no stored source
+# path (comma- or os.pathsep-separated). The project root and Dataset are always
+# searched; use this for corpora kept outside the checkout.
+SOURCE_SEARCH_ROOTS = os.getenv("ANEXUS_SOURCE_SEARCH_ROOTS", "").strip()
 
 # Passphrase for the per-user credential vault (Fernet). Any string works; it is
 # stretched with SHA-256 into a 32-byte key. Only needed to save credentials.

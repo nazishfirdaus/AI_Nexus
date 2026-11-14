@@ -30,7 +30,9 @@ class ChatResponse(BaseModel):
     model: str = ""
     latency_s: float = 0.0
     intent: str = ""
-    status: Literal["answered", "no_context"] = "answered"
+    status: Literal["answered", "no_context", "blocked"] = "answered"
+    guard: Literal["passed", "blocked"] = "passed"
+    pii_redactions: dict[str, int] = Field(default_factory=dict)
 
 
 class ConversationCreate(BaseModel):
@@ -79,6 +81,7 @@ class DocumentOut(BaseModel):
     vectors: int = 0
     duration_s: float = 0.0
     content_hash: Optional[str] = None
+    file_available: bool = False
     created_at: str
 
 

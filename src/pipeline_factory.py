@@ -101,6 +101,8 @@ def build_pipeline(
     collection_name: Optional[str] = None,
     db_path: Optional[str] = None,
     qdrant_client=None,
+    cache=None,
+    cache_namespace: Optional[str] = None,
 ) -> PipelineBundle:
     """Wire a complete pipeline, defaulting every part to the production component.
 
@@ -117,8 +119,14 @@ def build_pipeline(
     from src.retrieval.retriever import HybridRetriever
     from src.routing.quota_tracker import QuotaTracker
     from src.routing.semantic_router import SemanticRouter
+    from src.cache import get_cache
 
     tracker = quota_tracker or QuotaTracker()
+    # A namespace opts in explicitly: the API passes the tenant id, while tests
+    # and the evaluation harness build pipelines without a cache so they always
+    # exercise retrieval and generation.
+    if cache is None and cache_namespace:
+        cache = get_cache(f"user:{cache_namespace}")
     vec_db = vector_db or build_vector_db(
         collection_name=collection_name or settings.COLLECTION_NAME,
         qdrant_client=qdrant_client,
@@ -126,7 +134,7 @@ def build_pipeline(
     rerank = reranker or CrossEncoderReranker()
     scrub = scrubber or get_scrubber()
     rout = router or SemanticRouter(quota_tracker=tracker)
-    handler = llm_handler or build_default_handler(tracker)
+    handler = llm_handler or build_default_handler(tracker, cache=cache)
     pipe_retriever = retriever or HybridRetriever(
         vector_db=vec_db,
         documents=[],
@@ -147,6 +155,7 @@ def build_pipeline(
         chunker=chunk,
         embedder=embedder,
         document_store=store,
+        cache=cache,
     )
     return PipelineBundle(
         pipeline=pipeline,
@@ -179,17 +188,22 @@ def build_user_pipeline(
     BM25 index, LLM handler, quota state) are per user.
     """
     from src.auth.tenancy import user_collection_name, user_db_path
+    from src.cache import get_cache
     from src.generation.llm import build_handler_from_credentials
     from src.routing.quota_tracker import QuotaTracker
 
     tracker = quota_tracker if quota_tracker is not None else QuotaTracker(state_path=None)
-    handler = llm_handler or build_handler_from_credentials(credentials, tracker)
+    cache = get_cache(f"user:{user_id}")
+    handler = llm_handler or build_handler_from_credentials(
+        credentials, tracker, cache=cache
+    )
     return build_pipeline(
         collection_name=user_collection_name(user_id),
         db_path=user_db_path(user_id),
         quota_tracker=tracker,
         llm_handler=handler,
         qdrant_client=get_qdrant_client(),
+        cache=cache,
         **build_kwargs,
     )
 
@@ -199,7 +213,7 @@ def get_pipeline() -> PipelineBundle:
     global _PIPELINE, _PIPELINE_KEY
     if _PIPELINE is not None:
         return _PIPELINE
-    bundle = build_pipeline()
+    bundle = build_pipeline(cache_namespace="default")
     _PIPELINE = bundle
     _PIPELINE_KEY = "default"
     logger.info("Built shared RAG pipeline")
@@ -210,3 +224,6 @@ def reset_pipeline_cache() -> None:
     global _PIPELINE, _PIPELINE_KEY
     _PIPELINE = None
     _PIPELINE_KEY = ()
+    from src.cache import reset_response_caches
+
+    reset_response_caches()

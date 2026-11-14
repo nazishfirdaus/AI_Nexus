@@ -69,6 +69,7 @@ for _m in ("torch", "transformers"):
 
 from config import settings
 from src.generation.llm import ScrubbedText
+from src.redaction.placeholders import strip_internal_identifiers
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +275,52 @@ class IndianAddressRecognizer(PatternRecognizer):
             ],
             context=["address", "residing", "resides", "permanent", "present",
                      "belongs", "property", "premises"],
+            supported_language="en",
+        )
+
+
+class USAddressRecognizer(PatternRecognizer):
+    """US postal addresses, including city/state/ZIP.
+
+    The Indian recognizer intentionally targets Indian formats only, so a line
+    such as "1847 Willow Creek Drive, Austin, TX 78745" used to survive as
+    "1847 Willow <PERSON>, <PERSON>, TX 78745". These patterns require the
+    complete address tail (street, city, two-letter state and ZIP) so a bare
+    city or an ordinary number is never swallowed.
+    """
+
+    _SUFFIX = (
+        r"(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|"
+        r"Court|Ct|Place|Pl|Way|Terrace|Ter|Circle|Cir|Parkway|Pkwy|Highway|"
+        r"Hwy|Trail|Trl|Loop|Run|Path)"
+    )
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entity="US_ADDRESS",
+            patterns=[
+                # "1847 Willow Creek Drive, Austin, TX 78745"
+                Pattern(
+                    "us_full_address",
+                    rf"\b\d{{1,6}}[ \t]+[A-Z][A-Za-z0-9.'-]*"
+                    rf"(?:[ \t]+[A-Z][A-Za-z0-9.'-]*){{0,5}}[ \t]+{self._SUFFIX}\.?"
+                    rf"(?:[ \t]*(?:,|#|Apt\.?|Unit|Suite|Ste)[ \t]*[A-Za-z0-9-]+)?"
+                    rf"[ \t]*,[ \t]*[A-Z][A-Za-z .'-]{{1,40}},"
+                    rf"[ \t]*[A-Z]{{2}}[ \t]+\d{{5}}(?:-\d{{4}})?\b",
+                    0.85,
+                ),
+                # Same tail without a recognised street suffix (e.g. "12 Elm, Austin, TX 78745").
+                Pattern(
+                    "us_address_no_suffix",
+                    rf"\b\d{{1,6}}[ \t]+[A-Z][A-Za-z0-9.'-]*"
+                    rf"(?:[ \t]+[A-Z][A-Za-z0-9.'-]*){{0,5}}"
+                    rf"[ \t]*,[ \t]*[A-Z][A-Za-z .'-]{{1,40}},"
+                    rf"[ \t]*[A-Z]{{2}}[ \t]+\d{{5}}(?:-\d{{4}})?\b",
+                    0.75,
+                ),
+            ],
+            context=["address", "property", "residence", "residing", "located",
+                     "premises", "borrower"],
             supported_language="en",
         )
 
@@ -528,6 +575,7 @@ CUSTOM_RECOGNIZERS: tuple = (
     PanRecognizer,
     IndianPersonRecognizer,
     IndianAddressRecognizer,
+    USAddressRecognizer,
     IndianPincodeRecognizer,
     IndianAccountNumberRecognizer,
     IndianLoanNumberRecognizer,
@@ -772,8 +820,12 @@ def build_llm_inputs(
         except (TypeError, ValueError):
             page_key = page
         key = (str(meta.get("document_id") or ""), page_key)
-        parts.append(f"{label}\n{scrubbed}")
-        by_page.setdefault(key, []).append(str(scrubbed))
+        # Internal IDs are copied verbatim by some models and are not useful to
+        # the reader. Remove them from the model-facing text and from the page
+        # map used to build citation snippets.
+        cleaned = strip_internal_identifiers(str(scrubbed))
+        parts.append(f"{label}\n{cleaned}")
+        by_page.setdefault(key, []).append(cleaned)
     return (
         scrubbed_query,
         ScrubbedText("\n\n".join(parts)),

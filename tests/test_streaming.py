@@ -113,6 +113,22 @@ def test_openai_compatible_stream_parses_delta_chunks(monkeypatch):
     assert seen["json"]["model"] == "m"
 
 
+def test_stream_decodes_sse_bytes_as_utf8(monkeypatch):
+    """SSE has no charset; requests defaults to Latin-1 unless we decode bytes."""
+    payload = {
+        "choices": [
+            {"delta": {"content": "Document\u202fID\u202fANX\u2011MTG\u20110001"}}
+        ]
+    }
+    line = ("data: " + json.dumps(payload, ensure_ascii=False)).encode("utf-8")
+    patch_stream_post(monkeypatch, FakeStreamResp(lines=[line, b"data: [DONE]"]))
+    out = list(
+        GroqAdapter("m", "KEY").chat_stream([{"role": "user", "content": "hi"}])
+    )
+    assert out == ["Document\u202fID\u202fANX\u2011MTG\u20110001"]
+    assert "â" not in out[0]
+
+
 def test_nvidia_stream_parses_delta_chunks(monkeypatch):
     lines = [
         _sse({"choices": [{"delta": {"content": "A"}}]}),
@@ -271,7 +287,37 @@ def test_scrubber_splits_pii_across_chunk_boundary():
     emitted.append(s.flush())
     shown = "".join(emitted)
     assert aadhaar not in shown
-    assert "<AADHAAR_NUMBER>" in shown
+    # The token is neutralised for display; the value must still be gone.
+    assert "<AADHAAR_NUMBER>" not in shown
+    assert "the Aadhaar number" in shown
+
+
+def test_scrubber_does_not_duplicate_text_when_a_label_precedes_pii():
+    """Streaming must not rewrite text it has already sent.
+
+    The display cleaner would turn "Borrower the borrower" into "The borrower",
+    but that rewrites earlier output. Streaming therefore skips the context
+    cleanup; the final answer is cleaned normally.
+    """
+
+    class NameScrubber:
+        def scrub(self, text, context_prefix=""):
+            return ScrubbedText(text.replace("Rahul Sharma", "<PERSON>"))
+
+    raw = "The Borrower Rahul Sharma applied for a loan."
+    # The tail must be long enough to hold the whole name while it is checked.
+    s = _StreamingScrubber(NameScrubber(), tail=20)
+    emitted = []
+    for ch in raw:
+        delta = s.feed(ch)
+        if delta:
+            emitted.append(delta)
+    emitted.append(s.flush())
+    shown = "".join(emitted)
+
+    assert "Rahul" not in shown
+    assert "<PERSON>" not in shown
+    assert shown.count("Borrower") == 1
 
 
 def test_scrubber_passes_through_when_scrub_fails():

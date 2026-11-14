@@ -624,13 +624,17 @@ body {
 }
 
 .view--library,
-.view--settings {
+.view--settings,
+.view--agent,
+.view--eval {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .view--library.is-active,
-.view--settings.is-active {
+.view--settings.is-active,
+.view--agent.is-active,
+.view--eval.is-active {
   display: block;
   animation: viewIn 320ms var(--ease) both;
 }
@@ -735,6 +739,85 @@ body {
   color: var(--ink);
 }
 
+.answer em {
+  font-style: italic;
+}
+
+.answer h3,
+.answer h4 {
+  margin: 14px 0 5px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.answer h3:first-child,
+.answer h4:first-child {
+  margin-top: 0;
+}
+
+.answer ul,
+.answer ol {
+  margin: 8px 0 0 18px;
+  padding: 0;
+}
+
+.answer li {
+  margin: 3px 0;
+}
+
+.answer li::marker {
+  color: var(--faint);
+}
+
+.answer code {
+  padding: 1px 4px;
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.answer pre {
+  margin: 9px 0 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.answer pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.answer blockquote {
+  margin: 9px 0 0;
+  padding-left: 11px;
+  color: var(--muted);
+  border-left: 2px solid var(--gold-line);
+}
+
+.answer a {
+  color: var(--gold-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.answer hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
 .answer .cite {
   display: inline-block;
   margin-left: 2px;
@@ -763,7 +846,10 @@ body {
   gap: 5px;
   min-width: 0;
   padding: 9px 10px 10px;
+  font: inherit;
+  color: inherit;
   text-align: left;
+  cursor: pointer;
   background: color-mix(in srgb, var(--surface) 64%, transparent);
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -774,6 +860,12 @@ body {
   border-color: var(--gold-line);
   background: var(--surface);
   transform: translateY(-1px);
+}
+
+.src-card:focus-visible,
+.source-item:focus-visible {
+  outline: 2px solid var(--gold-line);
+  outline-offset: 2px;
 }
 
 .src-card-top {
@@ -1421,7 +1513,10 @@ body {
   gap: 4px;
   width: 100%;
   padding: 9px 10px;
+  font: inherit;
+  color: inherit;
   text-align: left;
+  cursor: pointer;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 42%, transparent);

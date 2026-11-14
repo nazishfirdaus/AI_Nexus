@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react"
 import { api, type AgentResult } from "../utils/api"
 import { Icon } from "./Icon"
+import { Markdown } from "./Markdown"
 
 interface Props {
   query: string
@@ -146,12 +147,7 @@ export function AgentView({
                 </div>
 
                 <div className="answer">
-                  {result.answer
-                    .split(/\n{2,}/)
-                    .filter(Boolean)
-                    .map((part, index) => (
-                      <p key={index}>{part}</p>
-                    ))}
+                  <Markdown text={result.answer} />
                 </div>
 
                 {result.thought_process.length > 0 && (

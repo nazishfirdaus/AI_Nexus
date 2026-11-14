@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import get_chat_store, rate_limit
 from src.api.schemas import FeedbackIn, MessageOut
+from src.api.serializers import message_out
 from src.memory.chat_store import ChatStore
 
 router = APIRouter(
@@ -25,4 +26,4 @@ def set_feedback(
     if store.get_message(message_id) is None:
         raise HTTPException(status_code=404, detail="Message not found.")
     store.set_feedback(message_id, body.value)
-    return MessageOut(**store.get_message(message_id))
+    return message_out(store.get_message(message_id))

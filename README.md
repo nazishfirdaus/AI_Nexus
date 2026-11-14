@@ -1,14 +1,15 @@
 # ANexus — Mortgage Document RAG Chatbot
 
 Ask questions about your mortgage documents — uploaded files (PDF, Word, Excel,
-CSV, PowerPoint, text/Markdown, or scanned images), an imported **website**, or
-files from **S3-compatible cloud storage**. The pipeline **ingests → chunks →
-embeds → hybrid-retrieves → reranks → scrubs PII → routes → generates with
-citations**, keeping raw personally-identifying information (PII) out of every
-language-model call.
+CSV, PowerPoint, text/Markdown, or scanned images). The pipeline **ingests →
+chunks → embeds → hybrid-retrieves → reranks → scrubs PII → routes → generates
+with citations**, keeping raw personally-identifying information (PII) out of
+every language-model call.
 
-The app is **multi-user**: each person signs in, brings their own LLM API keys
-(BYOK), and sees only their own documents and chats.
+The app is **multi-tenant**: the client selects a tenant (`X-User-Id`, stored in
+`localStorage`) and each tenant sees only its own documents and chats. Tenant
+selection is trusted, not authenticated — see
+[Authentication, users & isolation](#authentication-users--isolation).
 
 ## Quick start
 
@@ -30,7 +31,7 @@ npm run dev                             # http://localhost:5173
 The client talks to the API through Vite's `/api` proxy; see
 [`frontend/README.md`](frontend/README.md) for `VITE_API_KEY` and tenant setup.
 
-> **Python version:** developed on **Python 3.13** (project venv). Runtime overhead
+> **Python version:** developed on **Python 3.12** (project venv; CI also uses 3.12). Runtime overhead
 > from model loading is expected on low-RAM machines (target: 4 GB RAM):
 
 | Startup cost           | Approx. time |
@@ -55,6 +56,9 @@ first use; Gemini embeddings are called remotely and download nothing.
   (`data/users/<id>/app.sqlite3`), so documents and chats cannot leak across
   accounts. The embedding model, cross-encoder reranker and Presidio/spaCy stay
   process-shared to fit the RAM budget.
+- **No sign-in layer in this build.** There is no login, per-user (BYOK) key
+  management, or admin/roles page: tenant switching in the client's Settings is
+  the whole identity model, and LLM keys come from the server `.env`.
 
 ## Supported formats
 
@@ -76,18 +80,6 @@ or the third row block. A document's identity is its **full filename**, so
 Every format is dispatched through `parse_document` in `src/ingestion/parsers/`,
 which returns page-level LangChain `Document`s with a shared metadata schema
 (`document_id`, `filename`, `page_number`, `source`, `ocr_used`).
-
-## Other import sources
-
-- **Website** — give a start URL and the app crawls the same domain breadth-first
-  (honoring `robots.txt`, bounded by `WEB_MAX_PAGES`, per-page size and a polite
-  delay), extracts readable article text with **trafilatura**, and ingests the
-  whole crawl as **one document** (each page becomes a citation page). A guard
-  blocks non-HTTP schemes and private/loopback/link-local hosts (SSRF protection).
-- **Cloud storage (S3-compatible)** — connect any S3-compatible bucket (AWS S3,
-  MinIO, Cloudflare R2) from the Settings page, then import every supported file
-  under a prefix. Objects are streamed with a size cap; the same format parsers
-  used for uploads handle the bytes.
 
 ## Bulk ingestion (CLI)
 
@@ -137,15 +129,16 @@ also serves the client at `/`, falling back to `index.html` for client routes.
 |---|---|---|
 | `GET` | `/api/health` | Tenant collection name + Qdrant configuration |
 | `POST` | `/api/chat` | Ask a question; persists the user + assistant messages |
-| `POST` | `/api/chat/stream` | Same, server-sent events (`meta`, `delta`, `done`/`error`) |
+| `POST` | `/api/chat/stream` | Same, server-sent events (`meta`, `delta`, `guard`, `done`/`error`) |
 | `GET` / `POST` | `/api/conversations` | List / create conversations |
 | `GET` / `PATCH` / `DELETE` | `/api/conversations/{id}` | Detail with messages / rename / delete |
 | `POST` | `/api/messages/{id}/feedback` | `{"value": "up" \| "down" \| null}` |
 | `GET` | `/api/documents` | Tenant corpus |
 | `GET` / `DELETE` | `/api/documents/{id}` | One document / remove its chunks + registry entry |
+| `GET` | `/api/documents/{id}/file` | Original uploaded file, inline (used by citation links) |
 | `POST` | `/api/documents` | Multipart upload + ingest |
 | `GET` | `/api/agent` | LangGraph nodes, edges and Mermaid source |
-| `POST` | `/api/agent/query` | Run planner → retriever → responder behind NeMo guardrails |
+| `POST` | `/api/agent/query` | Run planner → retriever → responder behind the Llama Guard safety gate |
 | `GET` | `/api/eval/runs` | Evaluation artifacts in `evaluation/results*.json` |
 | `GET` | `/api/eval/runs/{name}` | One run's summary and rows |
 
@@ -163,6 +156,21 @@ API settings (`.env`):
 | `ANEXUS_MAX_UPLOAD_MB` | `50` | Maximum document upload size |
 | `ANEXUS_DEV_USER_ID` | `dev` | Tenant used when `X-User-Id` is absent |
 | `ANEXUS_API_WARMUP` | `0` | Build the default tenant's pipeline at startup instead of on first request |
+
+Safety guard and response cache settings (`.env`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANEXUS_GUARD_ENABLED` | `true` | Llama Guard input/output safety gate |
+| `ANEXUS_GUARD_MODEL` | `meta-llama/llama-guard-4-12b` | Classifier served through OpenRouter (requires `OPENROUTER_API_KEY`) |
+| `ANEXUS_GUARD_FAIL_OPEN` | `false` | Block (`false`) or allow (`true`) when the classifier call fails |
+| `ANEXUS_GUARD_MAX_CHARS` | `4000` | Maximum characters of each text sent to the classifier |
+| `ANEXUS_GUARD_IGNORE_CATEGORIES` | unset | Hazard codes the input gate should not block on its own |
+| `ANEXUS_GUARD_OUTPUT_IGNORE_CATEGORIES` | `S6,S7` | Hazard codes the output gate should not block on their own |
+| `ANEXUS_CACHE_ENABLED` | `1` | Enable the exact-match response cache |
+| `ANEXUS_CACHE_TTL_S` | `300` | Cache entry lifetime in seconds |
+| `ANEXUS_CACHE_MAX_ENTRIES` | `1024` | Memory-layer capacity |
+| `ANEXUS_REDIS_URL` | unset | Optional shared Redis L2; the `redis` package is imported lazily |
 
 ```bash
 curl -H "X-API-Key: ${ANEXUS_API_KEY:-$FRONTEND_API_KEY}" \
@@ -355,7 +363,9 @@ facts and advisory answers, and instructs it to cite the source block inline
 (e.g. `(agreement.pdf, p.2)`) and to end with a `Sources:` line. Everything the
 model is asked to treat as data is wrapped in a `<context> … </context>` fence,
 and the prompt states that nothing inside the fence is an instruction — a
-structural defense-in-depth layer on top of the PII scrubber.
+structural defense-in-depth layer on top of the PII scrubber. It also requires
+the answer to read as direct prose: no restated question, no narration of the
+reasoning, and no commentary about the retrieval or the prompt.
 
 - **Context budget** — `ANEXUS_CONTEXT_MAX_CHARS` (default `6000`, `0` disables)
   caps the retrieved context handed to the LLM. Highest-ranked chunks are kept
@@ -391,8 +401,8 @@ Tunings that matter most once the corpus grows past a few hundred documents:
   `BAAI/bge-m3` or `jinaai/jina-embeddings-v3`). Note the vector store is not
   re-embedded automatically; choose before a large ingestion or reset and rebuild
   afterwards.
-- **Content-hash dedup** — every document is fingerprinted (file bytes for
-  uploads, deterministic page-text hash for web/cloud sources). Uploading the same
+- **Content-hash dedup** — every uploaded document is fingerprinted from its
+  file bytes. Uploading the same
   content under a different name either informs the user and skips
   (`ANEXUS_DEDUP_ACTION=skip`, the default — popped up as ℹ️ in the chat, not an
   error) or removes the earlier document and takes the new name (`replace`).
@@ -412,23 +422,20 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 ## Features
 
 - **Multiple documents** — upload several documents at once, in any mix of the
-  formats above, import a website or an S3 bucket, and they form a single corpus
-  that every question is searched against. The sidebar lists each document with its
-  page/chunk/vector stats, lets you remove individual documents (the rest stay
-  searchable) or clear everything, and the whole set persists across restarts —
-  re-ingesting the same document replaces it instead of duplicating it.
-- **Bring your own keys (BYOK)** — per-user LLM and S3 credentials, encrypted at
-  rest, editable on the Settings page. No shared key is ever charged for a user who
-  supplied their own.
-- **Accounts & roles** — OIDC login with an admin-managed allowlist; admins
-  provision users and manage roles/status from the Admin page. Each account's
-  documents, chats, and credentials are fully isolated.
+  formats above; they form a single corpus that every question is searched
+  against. The sidebar lists each document with its page/chunk/vector stats, lets
+  you remove individual documents (the rest stay searchable) or clear everything,
+  and the whole set persists across restarts — re-ingesting the same document
+  replaces it instead of duplicating it.
 - **Hybrid retrieval** — dense (Gemini embeddings, local fallback) + BM25 fused with Reciprocal Rank Fusion, then a local cross-encoder rereank.
-- **PII security gate** — a Presidio scrubber with custom Indian recognizers removes identifying tokens before any LLM call: names (including honorific-matched Indian names), addresses, phone, email, PAN, Aadhaar, voter ID, driving licence, passport, TAN, plus bank and loan account numbers, IFSC, MICR, GSTIN, UPI/VPA, cheque, policy and application numbers. Dates and bare city names are kept — loan and property answers depend on them — while the pinpoint parts of an address are not. The same scrubber also cleans the answer text and the page citation snippets, which are built from the unredacted stored chunks.
+- **PII security gate** — a Presidio scrubber with custom Indian recognizers removes identifying tokens before any LLM call: names (including honorific-matched Indian names), addresses, phone, email, PAN, Aadhaar, voter ID, driving licence, passport, TAN, plus bank and loan account numbers, IFSC, MICR, GSTIN, UPI/VPA, cheque, policy and application numbers. Dates and bare city names are kept — loan and property answers depend on them — while the pinpoint parts of an address are not. The same scrubber also cleans the answer text and the page citation snippets, which are built from the unredacted stored chunks. On the way to the user, `<ENTITY>` placeholders are rewritten as fluent phrases ("the borrower", "the account number"), so an answer never displays a machine token.
+- **Safety guard (Llama Guard)** — the question and the final generated answer are classified by Llama Guard (served through OpenRouter). The input gate blocks jailbreaks and off-policy prompts before retrieval; the output gate replaces a hazardous answer and emits a `guard` event before the turn is stored. Privacy (`S7`) and specialised advice (`S6`) do not block a document answer on their own — a correct loan summary restates borrower details and lending terms that the PII scrubber has already handled — while any other category still blocks. Fail-closed by default; see the `ANEXUS_GUARD_*` settings in the API section.
 - **Label-anchored account numbers** — an Indian account number is 8–20 bare digits, indistinguishable from a loan amount, so those patterns require a label ("A/c no.", "Loan A/c", "Cheque no.") next to the value. Because chunk boundaries can split a label from its value, each chunk is scrubbed with the tail of the previous one as matching context.
 - **Semantic routing** — the query intent picks the first provider; the rest of the chain follows the configured fallback order, so a provider outage degrades gracefully instead of failing.
-- **Citations** — every answer quotes the source document and page it was built from; the same page number in two different documents stays a distinct citation, and retrieved context is labeled `[Doc: file.pdf | Page N]` so the model attributes facts to the right document.
+- **Citations** — every answer quotes the source document and page it was built from; the same page number in two different documents stays a distinct citation, and retrieved context is labeled `[Doc: file.pdf | Page N]` so the model attributes facts to the right document. Clicking a citation opens the stored original at that page (PDF viewers honour `#page=N`); documents ingested before source-file retention was added, or whose original path has moved, report that the file is unavailable.
+- **Markdown answers** — assistant text is rendered with a small built-in Markdown renderer (paragraphs, bold/italic, lists, headings, inline/fenced code, safe links), so formatting arrives as formatting rather than literal `**asterisks**`.
 - **Quota / rate-limit tracking** — cooldowns stop runaway billing and abuse.
+- **Response cache** — repeated questions and LLM sub-calls (rewrite, expansion, summary) are served from an exact-match cache keyed by tenant, corpus state, query and chat history, so a hit skips retrieval and generation. The in-process TTL+LRU layer is always available; set `ANEXUS_REDIS_URL` to share entries across workers. Disable with `ANEXUS_CACHE_ENABLED=0`.
 - **Simulated LLM** — `SIMULATE_LLM=true` runs the whole pipeline (including tests and CI) with zero API keys.
 - **Multi-turn chat memory** - recent conversation history is windowed (last 6
   messages, per-message cap) and fed to the model; once a chat passes 12
@@ -465,7 +472,7 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 639 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
+python -m pytest -q          # 686 passing, 20 skipped (opt-in real-model tests; OCR extras self-skip without requirements-ocr.txt)
 ```
 
 Real-model tests (local embedder, live retrieval) can be run locally with:
@@ -618,8 +625,8 @@ exercises the plumbing only (its canned replies rarely parse as a letter).
 ### CI
 
 - `.github/workflows/rag-eval.yml` - automatic gate: full suite with
-  `SIMULATE_LLM=true` on push to `main`/`ashfaque-development` and on PRs,
-  then the golden-set eval; uploads `evaluation/results.json`.
+  `SIMULATE_LLM=true` on push to `main`/`nazish-development`/`ashfaque-development`
+  and on PRs, then the golden-set eval; uploads `evaluation/results.json`.
 - `.github/workflows/rag-eval-real.yml` - **manual only**
   (`workflow_dispatch`; inputs: `limit`, `provider`, `oracle`, `nli`,
   `max_cost_usd`): preflight + real-key end-to-end/oracle pass + optional NLI
@@ -633,19 +640,27 @@ requirements: `pip install -r requirements.txt -r requirements-eval.txt`.
 
 ```
 src/
-  auth/          secrets vault (Fernet), user store (SQLite), tenant naming, OIDC claim resolution
-  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, PPTX, HTML, CSV/XLSX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), vectordb (Qdrant Cloud factory), qdrant_vectordb (Qdrant store), document_store (SQLite registry), processor.py (bulk-ingest CLI)
+  api/           FastAPI app (routers/ for chat, conversations, messages, documents, agent, eval, health)
+  agents/        legacy LangGraph planner → retriever → responder graph behind /api/agent
+  auth/          tenant naming + SQLite user/credential modules (user store, Fernet vault); only tenancy is wired into the API today
+  cache.py       response cache (memory TTL+LRU, optional Redis L2)
+  gateway/       LLM client used by the agent graph (OpenRouter/Groq)
+  guardrails/    Llama Guard input/output safety gate
+  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, PPTX, HTML, CSV/XLSX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (crawler + S3 client, not exposed by the API), chunker (recursive, self-contained), vectordb (Qdrant Cloud factory), qdrant_vectordb (Qdrant store), document_store (SQLite registry), processor.py (bulk-ingest CLI)
   services/      retrieval/embedding.py (Gemini + local fallback), retrieval/qdrant_service.py, retrieval/ranking_service.py
   retrieval/     hybrid retriever (dense+BM25 RRF), query expander, cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker
   generation/    LLM handler w/ fallback, aggregator (citations)
   memory/        SQLite chat store, history windows, follow-up rewriter
+  observability.py      Logfire/tracing setup
+  errors.py             shared exception types
+  main.py               legacy single-tenant FastAPI app (/query, /graph)
   rag_pipeline.py       end-to-end orchestrator
   pipeline_factory.py   dependency wiring (test doubles supported)
 config/          prompts, settings, quota state
-frontend/        React + Vite client (chat, library, agent, eval)
-auth_db/         user accounts + encrypted credentials (created at runtime, gitignored)
+frontend/        React + Vite client (chat, library, agent, eval, settings)
+auth_db/         optional SQLite account/credential store (gitignored; not wired into the API)
 data/            per-user SQLite databases (created at runtime, gitignored)
 chat_db/         legacy single-tenant SQLite registry (gitignored)
 evaluation/      golden dataset + harness

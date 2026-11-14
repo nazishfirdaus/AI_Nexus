@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import type { ChatResponse, FeedbackValue, Message } from "../utils/api"
+import type { ChatResponse, Citation, FeedbackValue, Message } from "../utils/api"
 import type { CorpusStats, DocView } from "../utils/documents"
 import { formatDuration, formatNumber } from "../utils/documents"
 import { Icon } from "./Icon"
+import { Markdown } from "./Markdown"
 
 interface Props {
   messages: Message[]
@@ -17,13 +18,7 @@ interface Props {
   onSend: (text: string) => void
   onFeedback: (messageId: number, value: FeedbackValue) => void
   onStop: () => void
-}
-
-function paragraphs(text: string): string[] {
-  return text
-    .split(/\n{2,}/)
-    .map((part) => part.trim())
-    .filter(Boolean)
+  onCitation: (citation: Citation) => void
 }
 
 export function ChatView({
@@ -39,6 +34,7 @@ export function ChatView({
   onSend,
   onFeedback,
   onStop,
+  onCitation,
 }: Props) {
   const [text, setText] = useState("")
   const [scopeOpen, setScopeOpen] = useState(false)
@@ -135,15 +131,19 @@ export function ChatView({
                 </header>
 
                 <div className="answer">
-                  {paragraphs(message.content).map((part, index) => (
-                    <p key={index}>{part}</p>
-                  ))}
+                  <Markdown text={message.content} />
                 </div>
 
                 {message.citations && message.citations.length > 0 && (
                   <div className="answer-sources">
                     {message.citations.map((citation, index) => (
-                      <figure key={`${citation.document_id}-${citation.page_number}-${index}`} className="src-card">
+                      <button
+                        key={`${citation.document_id}-${citation.page_number}-${index}`}
+                        type="button"
+                        className="src-card"
+                        title={`Open ${citation.filename || citation.document_id} at page ${citation.page_number}`}
+                        onClick={() => onCitation(citation)}
+                      >
                         <span className="src-card-top">
                           <span className="src-card-index">{index + 1}</span>
                           <span className="src-card-type">
@@ -153,13 +153,13 @@ export function ChatView({
                             {citation.score.toFixed(2)}
                           </span>
                         </span>
-                        <figcaption className="src-card-doc">
+                        <span className="src-card-doc">
                           {citation.filename || citation.document_id}
-                        </figcaption>
+                        </span>
                         {citation.snippet && (
                           <span className="src-card-snippet">{citation.snippet}</span>
                         )}
-                      </figure>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -216,7 +216,7 @@ export function ChatView({
               </header>
               <div className="answer">
                 {draft ? (
-                  paragraphs(draft).map((part, index) => <p key={index}>{part}</p>)
+                  <Markdown text={draft} />
                 ) : (
                   <div className="thinking-row">
                     <span className="dot-pulse" aria-hidden="true">

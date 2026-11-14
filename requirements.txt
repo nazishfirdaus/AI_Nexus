@@ -21,6 +21,9 @@ rank-bm25                   # BM25 lexical retrieval (src/retrieval/retriever.py
 # --- LLM GATEWAY ---
 groq                        # Direct Groq client (src/gateway/client.py), used when OpenRouter is unset
 
+# --- RESPONSE CACHE ---
+redis                       # Optional shared L2 for the response cache (src/cache.py); lazy-imported
+
 # --- LANGCHAIN & AGENTIC ORCHESTRATION ---
 langchain                   # Core LLM orchestration
 langgraph                   # State-machine logic for cyclic agent flows

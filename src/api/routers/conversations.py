@@ -11,8 +11,8 @@ from src.api.schemas import (
     ConversationDetail,
     ConversationOut,
     ConversationRename,
-    MessageOut,
 )
+from src.api.serializers import message_out
 from src.memory.chat_store import ChatStore
 
 router = APIRouter(
@@ -69,7 +69,7 @@ def get_conversation(
     store: Annotated[ChatStore, Depends(get_chat_store)],
 ) -> ConversationDetail:
     row = _require(store, conversation_id)
-    messages = [MessageOut(**item) for item in store.get_messages(conversation_id)]
+    messages = [message_out(item) for item in store.get_messages(conversation_id)]
     return ConversationDetail(**_conversation(row).model_dump(), messages=messages)
 
 

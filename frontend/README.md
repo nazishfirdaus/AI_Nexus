@@ -32,10 +32,10 @@ Every screen reads live data; no sample documents, answers or counts are bundled
 
 | Screen | Endpoint(s) |
 | --- | --- |
-| Chat | `POST /api/chat/stream` (SSE `meta`/`delta`/`done`/`error`), `GET /api/conversations/{id}` |
+| Chat | `POST /api/chat/stream` (SSE `meta`/`delta`/`guard`/`done`/`error`), `GET /api/conversations/{id}` |
 | Feedback | `POST /api/messages/{id}/feedback` |
 | Conversations | `GET/POST /api/conversations`, `PATCH/DELETE /api/conversations/{id}` |
-| Library | `GET/POST /api/documents`, `DELETE /api/documents/{id}` |
+| Library | `GET/POST /api/documents`, `DELETE /api/documents/{id}`, `GET /api/documents/{id}/file` |
 | Settings | `GET /api/health` |
 
 Streaming uses `fetch` + a `ReadableStream` reader rather than `EventSource`,
@@ -63,6 +63,7 @@ frontend/
     components/
       ConversationSidebar.tsx
       ChatView.tsx
+      Markdown.tsx
       LibraryView.tsx
       SettingsView.tsx
       EvidencePanel.tsx

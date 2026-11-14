@@ -1,4 +1,4 @@
-import type { ChatResponse, Health } from "../utils/api"
+import type { ChatResponse, Citation, Health } from "../utils/api"
 import type { CorpusStats } from "../utils/documents"
 import { formatDuration, formatNumber } from "../utils/documents"
 import { Icon } from "./Icon"
@@ -8,9 +8,16 @@ interface Props {
   stats: CorpusStats
   health: Health | null
   onClose: () => void
+  onCitation: (citation: Citation) => void
 }
 
-export function EvidencePanel({ answer, stats, health, onClose }: Props) {
+export function EvidencePanel({
+  answer,
+  stats,
+  health,
+  onClose,
+  onCitation,
+}: Props) {
   // Scores are raw retrieval scores and can be negative, so bars are scaled
   // against the strongest citation in this answer rather than a 0..1 clamp.
   const peak = answer
@@ -111,9 +118,12 @@ export function EvidencePanel({ answer, stats, health, onClose }: Props) {
         <div className="source-list">
           {answer && answer.citations.length > 0 ? (
             answer.citations.map((citation, index) => (
-              <article
+              <button
                 key={`${citation.document_id}-${citation.page_number}-${index}`}
+                type="button"
                 className="source-item"
+                title={`Open ${citation.filename || citation.document_id} at page ${citation.page_number}`}
+                onClick={() => onCitation(citation)}
               >
                 <span className="source-top">
                   <span className="source-index">{index + 1}</span>
@@ -135,7 +145,7 @@ export function EvidencePanel({ answer, stats, health, onClose }: Props) {
                     }}
                   />
                 </span>
-              </article>
+              </button>
             ))
           ) : (
             <p className="source-empty">

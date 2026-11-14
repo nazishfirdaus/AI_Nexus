@@ -83,6 +83,21 @@ def get_pipeline(
             )
         except Exception:  # noqa: BLE001 - dense retrieval still works
             logger.exception("Could not restore documents for %s", user_id)
+        try:
+            # Legacy rows have no stored source path. Attach a hash-verified
+            # original from the tenant directory or the checkout so old
+            # citations can open the PDF without a re-upload.
+            from src.ingestion.source_files import backfill_source_paths
+
+            attached = backfill_source_paths(user_id, bundle.document_store)
+            if attached:
+                logger.info(
+                    "Backfilled source files for %d document(s) for %s",
+                    attached,
+                    user_id,
+                )
+        except Exception:  # noqa: BLE001 - backfill must never block the API
+            logger.exception("Could not backfill source files for %s", user_id)
         _pipelines[user_id] = bundle
         logger.info("Built RAG pipeline for user %s", user_id)
         return bundle
@@ -152,3 +167,6 @@ def reset_caches() -> None:
     with _chat_stores_lock:
         _chat_stores.clear()
     _limiter.clear()
+    from src.cache import reset_response_caches
+
+    reset_response_caches()

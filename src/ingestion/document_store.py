@@ -27,14 +27,16 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
-    id           TEXT PRIMARY KEY,
-    filename     TEXT NOT NULL,
-    pages        INTEGER NOT NULL DEFAULT 0,
-    chunks       INTEGER NOT NULL DEFAULT 0,
-    vectors      INTEGER NOT NULL DEFAULT 0,
-    duration_s   REAL NOT NULL DEFAULT 0.0,
-    content_hash TEXT,
-    created_at   TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    filename        TEXT NOT NULL,
+    pages           INTEGER NOT NULL DEFAULT 0,
+    chunks          INTEGER NOT NULL DEFAULT 0,
+    vectors         INTEGER NOT NULL DEFAULT 0,
+    duration_s      REAL NOT NULL DEFAULT 0.0,
+    content_hash    TEXT,
+    storage_path    TEXT,
+    storage_managed INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL
 );
 """
 
@@ -76,6 +78,8 @@ class DocumentStore:
         with self._connection() as conn:
             conn.executescript(_SCHEMA)
             _ensure_column(conn, "content_hash", "TEXT")
+            _ensure_column(conn, "storage_path", "TEXT")
+            _ensure_column(conn, "storage_managed", "INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def _connection(self):
@@ -109,6 +113,8 @@ class DocumentStore:
         vectors: int = 0,
         duration_s: float = 0.0,
         content_hash: Optional[str] = None,
+        storage_path: Optional[str] = None,
+        storage_managed: bool = False,
     ) -> dict:
         """Insert (or replace) one document record."""
         with span(
@@ -125,17 +131,25 @@ class DocumentStore:
                 "vectors": int(vectors),
                 "duration_s": float(duration_s),
                 "content_hash": content_hash,
+                "storage_path": storage_path,
+                "storage_managed": 1 if storage_managed else 0,
                 "created_at": _now(),
             }
             with self._lock, self._connection() as conn:
                 conn.execute(
                     "INSERT INTO documents "
-                    "(id, filename, pages, chunks, vectors, duration_s, content_hash, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "(id, filename, pages, chunks, vectors, duration_s, content_hash, "
+                    "storage_path, storage_managed, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(id) DO UPDATE SET "
                     "filename=excluded.filename, pages=excluded.pages, "
                     "chunks=excluded.chunks, vectors=excluded.vectors, "
                     "duration_s=excluded.duration_s, content_hash=excluded.content_hash, "
+                    # A plain re-ingest (no storage_path passed) keeps the file
+                    # already associated with this document id.
+                    "storage_path=COALESCE(excluded.storage_path, documents.storage_path), "
+                    "storage_managed=CASE WHEN excluded.storage_path IS NULL "
+                    "THEN documents.storage_managed ELSE excluded.storage_managed END, "
                     "created_at=excluded.created_at",
                     (
                         record["id"],
@@ -145,10 +159,31 @@ class DocumentStore:
                         record["vectors"],
                         record["duration_s"],
                         record["content_hash"],
+                        record["storage_path"],
+                        record["storage_managed"],
                         record["created_at"],
                     ),
                 )
             return record
+
+    def set_storage_path(
+        self,
+        document_id: str,
+        storage_path: Optional[str],
+        *,
+        managed: bool = True,
+    ) -> None:
+        """Attach an original source file to an existing document record."""
+        with span(
+            "ingestion.document_store.set_storage_path",
+            document_id=hash_id(document_id),
+        ):
+            with self._lock, self._connection() as conn:
+                conn.execute(
+                    "UPDATE documents SET storage_path = ?, storage_managed = ? "
+                    "WHERE id = ?",
+                    (storage_path, 1 if managed else 0, document_id),
+                )
 
     def list(self) -> list[dict]:
         """All documents, oldest first."""

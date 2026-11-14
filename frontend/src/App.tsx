@@ -4,6 +4,7 @@ import {
   setTenant,
   type AgentResult,
   type ChatResponse,
+  type Citation,
   type Conversation,
   type DocumentRecord,
   type FeedbackValue,
@@ -233,6 +234,16 @@ export function App() {
               streamed += chunk
               setDraft(streamed)
             },
+            onGuard: (blocked, reason) => {
+              if (blocked) {
+                pushToast(
+                  reason === "input"
+                    ? "Blocked by the safety guard."
+                    : "Answer withheld by the output safety guard.",
+                  "error"
+                )
+              }
+            },
             onDone: (payload) => {
               conversationId = payload.conversation_id
               setLastAnswer(payload)
@@ -268,6 +279,49 @@ export function App() {
     setStreaming(false)
     setDraft("")
   }, [])
+
+  /**
+   * Open a citation's source file at the cited page. The API needs the tenant
+   * (and optional API-key) headers, which a plain link cannot send, so the file
+   * is fetched as a blob first. Opening the tab synchronously avoids the popup
+   * blocker that would otherwise reject an async `window.open`.
+   */
+  const openCitation = useCallback(
+    async (citation: Citation) => {
+      if (!citation.document_id) {
+        pushToast("This citation has no stored source file.", "error")
+        return
+      }
+
+      const tab = window.open("", "_blank")
+      if (!tab) {
+        pushToast("Allow pop-ups to open the source document.", "error")
+        return
+      }
+
+      try {
+        const blob = await api.documentFile(citation.document_id)
+        const url = URL.createObjectURL(blob)
+        const isPdf = /\.pdf$/i.test(citation.filename || citation.document_id)
+        const page =
+          isPdf && citation.page_number > 0
+            ? `#page=${citation.page_number}`
+            : ""
+        tab.location.href = `${url}${page}`
+        // Keep the blob alive while the new tab loads, then release it.
+        window.setTimeout(() => URL.revokeObjectURL(url), 120_000)
+      } catch (err) {
+        tab.close()
+        pushToast(
+          err instanceof Error
+            ? err.message
+            : "Could not open the source document.",
+          "error"
+        )
+      }
+    },
+    [pushToast]
+  )
 
   const feedback = useCallback(
     async (messageId: number, value: FeedbackValue) => {
@@ -478,6 +532,7 @@ export function App() {
             onSend={send}
             onFeedback={feedback}
             onStop={stop}
+            onCitation={openCitation}
           />
         )}
 
@@ -540,6 +595,7 @@ export function App() {
           stats={stats}
           health={health}
           onClose={() => setEvidenceOpen(false)}
+          onCitation={openCitation}
         />
       )}
 

@@ -169,7 +169,8 @@ def test_snippet_uses_the_pre_scrubbed_page_text():
     """A snippet sliced out of a raw chunk can lose the label its value needs.
 
     When the pipeline supplies the page map, snippets come from that instead, so they
-    show exactly the text the model was given.
+    show exactly the text the model was given — with placeholders rewritten for
+    display.
     """
     chunks = [RankedChunk("50100234567890 is the payout account.", {"page_number": 3}, 0.9)]
     answer = Aggregator().aggregate(
@@ -178,4 +179,6 @@ def test_snippet_uses_the_pre_scrubbed_page_text():
     )
     snippet = answer.citations[0].snippet
     assert "50100234567890" not in snippet
-    assert snippet.startswith("Disbursal A/c No")
+    assert "<IN_LOAN_NO>" not in snippet
+    assert "the loan number" in snippet
+    assert "payout account" in snippet

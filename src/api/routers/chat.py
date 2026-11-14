@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from typing import Annotated, Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,8 +21,12 @@ from src.api.dependencies import (
     rate_limit,
 )
 from src.api.schemas import ChatRequest, ChatResponse, CitationOut
+from src.config import settings
+from src.generation.aggregator import FinalAnswer
+from src.guardrails import guard, guard_output
 from src.memory.chat_store import ChatStore
 from src.pipeline_factory import PipelineBundle
+from src.redaction.placeholders import display_text
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,12 @@ def _title(text: str) -> str:
 
 
 def _citations(result) -> list[CitationOut]:
-    return [CitationOut(**citation.to_dict()) for citation in (result.citations or [])]
+    citations = []
+    for citation in result.citations or []:
+        data = citation.to_dict()
+        data["snippet"] = display_text(data.get("snippet") or "")
+        citations.append(CitationOut(**data))
+    return citations
 
 
 def _history(store: ChatStore, conversation_id: str) -> list[dict]:
@@ -94,19 +104,24 @@ def _as_response(
     user_message_id: int,
     assistant_message_id: int,
     result,
+    *,
+    status: Optional[str] = None,
+    guard_state: str = "passed",
 ) -> ChatResponse:
     citations = _citations(result)
     return ChatResponse(
         conversation_id=conversation_id,
         user_message_id=user_message_id,
         assistant_message_id=assistant_message_id,
-        answer=result.text,
+        answer=display_text(result.text),
         citations=citations,
         provider=getattr(result, "provider", "") or "",
         model=getattr(result, "model", "") or "",
         latency_s=float(getattr(result, "latency_s", 0.0) or 0.0),
         intent=getattr(result, "intent", "") or "",
-        status="answered" if citations else "no_context",
+        status=status or ("answered" if citations else "no_context"),
+        guard=guard_state,  # type: ignore[arg-type]
+        pii_redactions=dict(getattr(result, "pii_redactions", {}) or {}),
     )
 
 
@@ -129,6 +144,28 @@ def chat(
 
     user_message_id = store.append_message(conversation_id, "user", body.message)
 
+    blocked, refusal = guard(body.message)
+    if blocked:
+        result = FinalAnswer(
+            text=refusal or "",
+            provider="guard",
+            model=settings.GUARD_MODEL,
+            latency_s=0.0,
+            intent="blocked",
+        )
+        citations: list[CitationOut] = []
+        assistant_message_id = store.append_message(
+            conversation_id, "assistant", display_text(result.text), citations=[]
+        )
+        return _as_response(
+            conversation_id,
+            user_message_id,
+            assistant_message_id,
+            result,
+            status="blocked",
+            guard_state="blocked",
+        )
+
     try:
         result = bundle.pipeline.answer_query(
             body.message,
@@ -148,15 +185,32 @@ def chat(
             ),
         ) from exc
 
+    guard_state = "passed"
+    blocked_out, replacement = guard_output(result.text)
+    if blocked_out:
+        logger.info("Answer withheld by the output guard for %s", conversation_id)
+        result = replace(
+            result,
+            text=replacement or result.text,
+            citations=[],
+            intent="blocked",
+        )
+        guard_state = "blocked"
+
     citations = _citations(result)
     assistant_message_id = store.append_message(
         conversation_id,
         "assistant",
-        result.text,
+        display_text(result.text),
         citations=[citation.model_dump() for citation in citations],
     )
     return _as_response(
-        conversation_id, user_message_id, assistant_message_id, result
+        conversation_id,
+        user_message_id,
+        assistant_message_id,
+        result,
+        status="blocked" if guard_state == "blocked" else None,
+        guard_state=guard_state,
     )
 
 
@@ -173,6 +227,51 @@ def chat_stream(
     history = _history(store, conversation_id)
     document_id = body.document_id or conversation.get("document_id")
     user_message_id = store.append_message(conversation_id, "user", body.message)
+
+    blocked, refusal = guard(body.message)
+    if blocked:
+        result = FinalAnswer(
+            text=refusal or "",
+            provider="guard",
+            model=settings.GUARD_MODEL,
+            latency_s=0.0,
+            intent="blocked",
+        )
+
+        def blocked_events() -> Iterator[str]:
+            yield _sse(
+                "meta",
+                {
+                    "conversation_id": conversation_id,
+                    "user_message_id": user_message_id,
+                },
+            )
+            assistant_message_id = store.append_message(
+                conversation_id,
+                "assistant",
+                display_text(result.text),
+                citations=[],
+            )
+            payload = _as_response(
+                conversation_id,
+                user_message_id,
+                assistant_message_id,
+                result,
+                status="blocked",
+                guard_state="blocked",
+            )
+            yield _sse("guard", {"blocked": True, "reason": "input"})
+            yield _sse("done", payload.model_dump())
+
+        return StreamingResponse(
+            blocked_events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     try:
         handle = bundle.pipeline.answer_query_stream(
@@ -205,16 +304,35 @@ def chat_stream(
             if result is None:
                 raise RuntimeError("The stream ended without a final answer.")
 
+            guard_state = "passed"
+            blocked_out, replacement = guard_output(result.text)
+            if blocked_out:
+                logger.info("Streamed answer withheld by the output guard")
+                result = replace(
+                    result,
+                    text=replacement or result.text,
+                    citations=[],
+                    intent="blocked",
+                )
+                guard_state="blocked"
+
             citations = _citations(result)
             assistant_message_id = store.append_message(
                 conversation_id,
                 "assistant",
-                result.text,
+                display_text(result.text),
                 citations=[citation.model_dump() for citation in citations],
             )
             payload = _as_response(
-                conversation_id, user_message_id, assistant_message_id, result
+                conversation_id,
+                user_message_id,
+                assistant_message_id,
+                result,
+                status="blocked" if guard_state == "blocked" else None,
+                guard_state=guard_state,
             )
+            if guard_state == "blocked":
+                yield _sse("guard", {"blocked": True, "reason": "output"})
             yield _sse("done", payload.model_dump())
         except Exception:  # noqa: BLE001 - the response has already started
             logger.exception("RAG stream failed for conversation %s", conversation_id)

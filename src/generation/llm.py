@@ -16,8 +16,8 @@ import logging
 import os
 import time
 from abc import ABC
-from dataclasses import dataclass
-from typing import Callable, Optional
+from dataclasses import asdict, dataclass
+from typing import Callable, Optional, TYPE_CHECKING
 
 import requests
 
@@ -25,6 +25,9 @@ from config import settings
 from config.prompts import USER_PROMPT, build_system_prompt
 from src.observability import span
 from src.routing.quota_tracker import QuotaTracker
+
+if TYPE_CHECKING:
+    from src.cache import ResponseCache
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +157,10 @@ class BaseAdapter(ABC):
         except requests.RequestException as e:
             raise ProviderError(f"network error: {e}", self.name) from e
         if r.status_code != 200:
+            try:
+                r.encoding = "utf-8"
+            except Exception:  # pragma: no cover - unusual response object
+                pass
             raise ProviderError(f"HTTP {r.status_code}: {r.text[:300]}", self.name, r.status_code)
         try:
             return r.json()
@@ -175,11 +182,25 @@ class BaseAdapter(ABC):
         except requests.RequestException as e:
             raise ProviderError(f"network error: {e}", self.name) from e
         if r.status_code != 200:
+            # Error bodies are JSON/UTF-8. requests defaults text/event-stream
+            # without a charset to ISO-8859-1, which turns "â€¯" into mojibake.
+            try:
+                r.encoding = "utf-8"
+            except Exception:  # pragma: no cover - unusual response object
+                pass
             raise ProviderError(f"HTTP {r.status_code}: {r.text[:300]}", self.name, r.status_code)
-        for raw in r.iter_lines(decode_unicode=True):
-            if not raw or not raw.startswith("data:"):
+
+        # SSE is UTF-8 by specification, but requests sets ISO-8859-1 for a
+        # `text/event-stream` response that omits `charset`. Decoding each line
+        # explicitly avoids turning U+202F / U+2011 into Latin-1 mojibake.
+        for raw in r.iter_lines(decode_unicode=False):
+            if isinstance(raw, bytes):
+                line = raw.decode("utf-8", errors="replace")
+            else:  # test doubles / already-decoded responses
+                line = str(raw)
+            if not line or not line.startswith("data:"):
                 continue
-            chunk = raw[5:].strip()
+            chunk = line[5:].strip()
             if chunk == "[DONE]":
                 break
             if chunk:
@@ -366,12 +387,16 @@ class LLMHandler:
         adapters: dict[str, BaseAdapter],
         quota_tracker: QuotaTracker | None = None,
         on_response: Callable[[LLMResponse], None] | None = None,
+        cache: "ResponseCache | None" = None,
     ) -> None:
         self.adapters = adapters
         self.quota = quota_tracker or QuotaTracker()
         # Optional observer (e.g. the eval cost meter) notified on every
         # successful call, including rewrite/expansion/summary, not just QA.
         self.on_response = on_response
+        # Optional exact-match cache. Left None by default so unit tests and the
+        # evaluation harness always exercise the real provider path.
+        self.cache = cache
 
     def _notify(self, response: LLMResponse) -> None:
         if self.on_response is not None:
@@ -383,6 +408,46 @@ class LLMHandler:
     @property
     def available_providers(self) -> list[str]:
         return [n for n, a in self.adapters.items() if a.is_configured()]
+
+    # ------------------------------------------------------------- cache
+    _CACHE_VERSION = "v1"
+
+    def _cache_key(self, operation: str, parts: tuple) -> Optional[str]:
+        if self.cache is None or not self.cache.enabled:
+            return None
+        return self.cache.make_key(
+            "llm",
+            self._CACHE_VERSION,
+            operation,
+            parts,
+            tuple(sorted(getattr(settings, "PROVIDER_MODELS", {}).items())),
+            int(settings.LLM_MAX_TOKENS),
+            bool(settings.SIMULATE_LLM),
+        )
+
+    def _cache_lookup(self, key: Optional[str]) -> Optional[LLMResponse]:
+        if not key or self.cache is None:
+            return None
+        data = self.cache.get(key)
+        if not isinstance(data, dict):
+            return None
+        usage = data.get("usage")
+        try:
+            return LLMResponse(
+                text=str(data.get("text") or ""),
+                provider=str(data.get("provider") or ""),
+                model=str(data.get("model") or ""),
+                latency_s=0.0,  # a hit did no provider work
+                fallbacks_tried=list(data.get("fallbacks_tried") or []),
+                usage=TokenUsage(**usage) if isinstance(usage, dict) else None,
+            )
+        except (TypeError, ValueError):
+            logger.warning("Discarding malformed cached LLM response")
+            return None
+
+    def _cache_store(self, key: Optional[str], response: LLMResponse) -> None:
+        if key and self.cache is not None:
+            self.cache.set(key, asdict(response))
 
     def generate(
         self,
@@ -402,6 +467,26 @@ class LLMHandler:
         if summary is not None and not isinstance(summary, ScrubbedText):
             raise TypeError("LLMHandler only accepts ScrubbedText for summary.")
 
+        history_key = tuple(
+            (str(turn.get("role") or ""), str(turn.get("content") or ""))
+            for turn in (history or [])
+        )
+        cache_key = self._cache_key(
+            "generate",
+            (
+                str(query),
+                str(context),
+                history_key,
+                str(summary or ""),
+                tuple(provider_order),
+                settings.LLM_TEMPERATURE if temperature is None else float(temperature),
+            ),
+        )
+        cached = self._cache_lookup(cache_key)
+        if cached is not None:
+            logger.debug("LLM cache hit (%s)", "generate")
+            return cached
+
         with span(
             "llm.generate",
             query_chars=len(str(query)),
@@ -411,19 +496,22 @@ class LLMHandler:
             has_summary=bool(summary),
         ):
             if history or summary:
-                return self._run(
+                response = self._run(
                     provider_order,
                     lambda adapter: adapter.generate(
                         str(query), str(context), history=history, summary=summary,
                         temperature=temperature,
                     ),
                 )
-            return self._run(
-                provider_order,
-                lambda adapter: adapter.generate(
-                    str(query), str(context), temperature=temperature
-                ),
-            )
+            else:
+                response = self._run(
+                    provider_order,
+                    lambda adapter: adapter.generate(
+                        str(query), str(context), temperature=temperature
+                    ),
+                )
+        self._cache_store(cache_key, response)
+        return response
 
     def generate_messages(
         self,
@@ -443,15 +531,35 @@ class LLMHandler:
                 raise TypeError(f"invalid message role: {message.get('role')!r}")
             if not isinstance(message.get("content"), ScrubbedText):
                 raise TypeError("LLMHandler only accepts ScrubbedText message content.")
+
+        messages_key = tuple(
+            (str(message.get("role") or ""), str(message.get("content") or ""))
+            for message in messages
+        )
+        cache_key = self._cache_key(
+            "generate_messages",
+            (
+                messages_key,
+                tuple(provider_order),
+                settings.LLM_TEMPERATURE if temperature is None else float(temperature),
+            ),
+        )
+        cached = self._cache_lookup(cache_key)
+        if cached is not None:
+            logger.debug("LLM cache hit (%s)", "generate_messages")
+            return cached
+
         with span(
             "llm.generate_messages",
             message_count=len(messages),
             provider_order=",".join(provider_order),
         ):
-            return self._run(
+            response = self._run(
                 provider_order,
                 lambda adapter: adapter.chat(messages, temperature=temperature),
             )
+        self._cache_store(cache_key, response)
+        return response
 
     def generate_stream(
         self,
@@ -624,11 +732,14 @@ def build_handler(
     api_keys: dict[str, str | None],
     quota_tracker: QuotaTracker | None = None,
     on_response: Callable[[LLMResponse], None] | None = None,
+    cache: "ResponseCache | None" = None,
 ) -> LLMHandler:
     """Construct the handler from explicit per-provider keys (provider -> key)."""
     tracker = quota_tracker or QuotaTracker()
     if settings.SIMULATE_LLM:
-        return LLMHandler({"simulated": SimulatedAdapter()}, tracker, on_response)
+        return LLMHandler(
+            {"simulated": SimulatedAdapter()}, tracker, on_response, cache=cache
+        )
 
     models = settings.PROVIDER_MODELS
     return LLMHandler(
@@ -639,22 +750,25 @@ def build_handler(
         },
         tracker,
         on_response,
+        cache=cache,
     )
 
 
 def build_default_handler(
     quota_tracker: QuotaTracker | None = None,
     on_response: Callable[[LLMResponse], None] | None = None,
+    cache: "ResponseCache | None" = None,
 ) -> LLMHandler:
     """Construct the handler from environment variables (see .env.example)."""
     keys = {provider: os.getenv(env) for provider, (_, env) in _PROVIDER_KEY_FIELDS.items()}
-    return build_handler(keys, quota_tracker, on_response)
+    return build_handler(keys, quota_tracker, on_response, cache=cache)
 
 
 def build_handler_from_credentials(
     credentials: dict | None,
     quota_tracker: QuotaTracker | None = None,
     on_response: Callable[[LLMResponse], None] | None = None,
+    cache: "ResponseCache | None" = None,
 ) -> LLMHandler:
     """Build the handler from a user's stored credentials.
 
@@ -669,5 +783,5 @@ def build_handler_from_credentials(
         for provider, (field, _env) in _PROVIDER_KEY_FIELDS.items()
     }
     if any(user_keys.values()):
-        return build_handler(user_keys, quota_tracker, on_response)
-    return build_default_handler(quota_tracker, on_response)
+        return build_handler(user_keys, quota_tracker, on_response, cache=cache)
+    return build_default_handler(quota_tracker, on_response, cache=cache)

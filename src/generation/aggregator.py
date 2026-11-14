@@ -16,6 +16,8 @@ import logging
 from dataclasses import dataclass, field, asdict
 from typing import Iterable, Optional, TYPE_CHECKING
 
+from src.redaction.placeholders import display_text
+
 if TYPE_CHECKING:
     from src.generation.llm import LLMResponse
     from src.retrieval.reranker import RankedChunk
@@ -57,11 +59,41 @@ class FinalAnswer:
     citations: list[Citation] = field(default_factory=list)
     intent: str = ""
     routing_reason: str = ""
+    pii_redactions: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         data = asdict(self)
         data["citations"] = [c.to_dict() for c in self.citations]
         return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FinalAnswer":
+        """Rebuild a cached answer; unknown fields from older entries are ignored."""
+        data = data or {}
+        citations = []
+        for item in data.get("citations") or []:
+            if not isinstance(item, dict):
+                continue
+            citations.append(
+                Citation(
+                    page_number=int(item.get("page_number") or 0),
+                    score=float(item.get("score") or 0.0),
+                    snippet=str(item.get("snippet") or ""),
+                    document_id=str(item.get("document_id") or ""),
+                    filename=str(item.get("filename") or ""),
+                )
+            )
+        return cls(
+            text=str(data.get("text") or ""),
+            provider=str(data.get("provider") or ""),
+            model=str(data.get("model") or ""),
+            latency_s=float(data.get("latency_s") or 0.0),
+            fallbacks_tried=list(data.get("fallbacks_tried") or []),
+            citations=citations,
+            intent=str(data.get("intent") or ""),
+            routing_reason=str(data.get("routing_reason") or ""),
+            pii_redactions=dict(data.get("pii_redactions") or {}),
+        )
 
 
 class Aggregator:
@@ -76,16 +108,33 @@ class Aggregator:
         instead of merely degrading it, so a failure is logged and the text passes
         through unchanged.
         """
-        if self.scrubber is None or not text:
-            return text
-        try:
-            return str(self.scrubber.scrub(text))
-        except Exception:
-            logger.warning(
-                "Post-scrub of display text failed; passing it through unsanitised.",
-                exc_info=True,
-            )
-            return text
+        return self._scrub_with_report(text)[0]
+
+    def _scrub_with_report(self, text: str) -> tuple[str, dict[str, int]]:
+        """``_scrub`` plus the per-entity counts it redacted.
+
+        Placeholders are always neutralised on the way out, even when no
+        scrubber is wired: the model can echo a token from the context it was
+        given, and the user must never see ``<IN_LOAN_NO>`` in an answer.
+        """
+        if not text:
+            return text, {}
+        cleaned, report = text, {}
+        if self.scrubber is not None:
+            try:
+                scrub_with_report = getattr(self.scrubber, "scrub_with_report", None)
+                if scrub_with_report is None:
+                    cleaned = str(self.scrubber.scrub(text))
+                else:
+                    cleaned, report = scrub_with_report(text)
+                    cleaned = str(cleaned)
+            except Exception:
+                logger.warning(
+                    "Post-scrub of display text failed; passing it through unsanitised.",
+                    exc_info=True,
+                )
+                cleaned, report = text, {}
+        return display_text(cleaned), report
 
     @staticmethod
     def _source_key(chunk: RankedChunk) -> tuple:
@@ -131,15 +180,20 @@ class Aggregator:
             scrubbed = (scrubbed_by_page or {}).get(key)
             if scrubbed is None:
                 scrubbed = self._scrub(best.content)
+            # `scrubbed_by_page` is the model-facing text, which still contains
+            # placeholders. Neutralise before slicing so a token is never cut in
+            # half and leaked to the UI.
+            snippet = display_text(str(scrubbed))[:snippet_chars]
             citations.append(Citation(
                 page_number=key[1],
                 score=best.score,
-                snippet=scrubbed[:snippet_chars],
+                snippet=snippet,
                 document_id=key[0],
                 filename=str((best.metadata or {}).get("filename") or ""),
             ))
+        answer_text, pii_report = self._scrub_with_report(llm_response.text)
         return FinalAnswer(
-            text=self._scrub(llm_response.text),
+            text=answer_text,
             provider=llm_response.provider,
             model=llm_response.model,
             latency_s=llm_response.latency_s,
@@ -147,6 +201,7 @@ class Aggregator:
             citations=citations,
             intent=intent,
             routing_reason=routing_reason,
+            pii_redactions=pii_report,
         )
 
     @staticmethod

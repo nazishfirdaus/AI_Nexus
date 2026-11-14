@@ -53,6 +53,42 @@ class Settings:
     GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
     GROQ_GUARD_MODEL = os.getenv("GROQ_GUARD_MODEL", "openai/gpt-oss-20b")
 
+    # --- Safety guard (Llama Guard via OpenRouter; input and output) ---
+    GUARD_ENABLED = os.getenv("ANEXUS_GUARD_ENABLED", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    GUARD_MODEL = os.getenv("ANEXUS_GUARD_MODEL", "meta-llama/llama-guard-4-12b")
+    # When the guard is configured but the call fails, block (false) or allow (true).
+    GUARD_FAIL_OPEN = os.getenv("ANEXUS_GUARD_FAIL_OPEN", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    try:
+        GUARD_MAX_CHARS = int(os.getenv("ANEXUS_GUARD_MAX_CHARS", "4000"))
+    except ValueError:
+        GUARD_MAX_CHARS = 4000
+    # Hazard codes that must not block on their own. Input keeps every category.
+    # Output ignores S6 (specialised advice) and S7 (privacy) by default: this
+    # app summarises documents that legitimately contain lending terms and
+    # personal data, and PII is already redacted by the Presidio layer.
+    GUARD_IGNORE_CATEGORIES = tuple(
+        code.strip().upper()
+        for code in os.getenv("ANEXUS_GUARD_IGNORE_CATEGORIES", "").split(",")
+        if code.strip()
+    )
+    GUARD_OUTPUT_IGNORE_CATEGORIES = tuple(
+        code.strip().upper()
+        for code in os.getenv(
+            "ANEXUS_GUARD_OUTPUT_IGNORE_CATEGORIES", "S6,S7"
+        ).split(",")
+        if code.strip()
+    )
+
     # --- Observability (agent-only) ---
     LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
     LANGSMITH_TRACING = os.getenv(

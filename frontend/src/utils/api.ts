@@ -13,7 +13,7 @@ export interface Citation {
   filename: string
 }
 
-export type ChatStatus = "answered" | "no_context"
+export type ChatStatus = "answered" | "no_context" | "blocked"
 
 export interface ChatResponse {
   conversation_id: string
@@ -26,6 +26,8 @@ export interface ChatResponse {
   latency_s: number
   intent: string
   status: ChatStatus
+  guard: "passed" | "blocked"
+  pii_redactions: Record<string, number>
 }
 
 export interface Conversation {
@@ -62,6 +64,7 @@ export interface DocumentRecord {
   vectors: number
   duration_s: number
   content_hash: string | null
+  file_available: boolean
   created_at: string
 }
 
@@ -95,6 +98,7 @@ export interface Health {
 export interface StreamHandlers {
   onMeta?: (meta: { conversation_id: string; user_message_id: number }) => void
   onDelta?: (text: string) => void
+  onGuard?: (blocked: boolean, reason: string) => void
   onDone?: (payload: ChatResponse) => void
   onError?: (detail: string) => void
 }
@@ -156,17 +160,19 @@ function headers(extra?: Record<string, string>): Record<string, string> {
   return merged
 }
 
-async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`
-    try {
-      const body = (await res.json()) as { detail?: unknown }
-      if (typeof body.detail === "string") detail = body.detail
-    } catch {
-      // Non-JSON error body; keep the status text.
-    }
-    throw new Error(detail)
+async function failure(res: Response): Promise<Error> {
+  let detail = `${res.status} ${res.statusText}`
+  try {
+    const body = (await res.json()) as { detail?: unknown }
+    if (typeof body.detail === "string") detail = body.detail
+  } catch {
+    // Non-JSON error body; keep the status text.
   }
+  return new Error(detail)
+}
+
+async function json<T>(res: Response): Promise<T> {
+  if (!res.ok) throw await failure(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
@@ -248,6 +254,16 @@ export const api = {
       method: "DELETE",
       headers: headers(),
     }).then(() => undefined)
+  },
+
+  /** Fetch a stored source file with the tenant/API-key headers. */
+  async documentFile(id: string): Promise<Blob> {
+    const res = await fetch(
+      `/api/documents/${encodeURIComponent(id)}/file`,
+      { headers: headers() }
+    )
+    if (!res.ok) throw await failure(res)
+    return res.blob()
   },
 
   sendChat(input: {
@@ -382,6 +398,12 @@ function dispatchFrame(frame: string, handlers: StreamHandlers): void {
       break
     case "delta":
       if (typeof payload.text === "string") handlers.onDelta?.(payload.text)
+      break
+    case "guard":
+      handlers.onGuard?.(
+        payload.blocked === true,
+        typeof payload.reason === "string" ? payload.reason : "",
+      )
       break
     case "done":
       handlers.onDone?.(payload as unknown as ChatResponse)

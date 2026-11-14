@@ -1,6 +1,8 @@
 import logfire
 from src.agents.state import AgentState
 from src.gateway import llm_client
+from src.guardrails import guard_output
+from src.redaction.placeholders import display_text
 
 
 def generate_node(state: AgentState):
@@ -67,13 +69,18 @@ def generate_node(state: AgentState):
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
-            content = response.choices[0].message.content
+            content = display_text(response.choices[0].message.content or "")
+
+            blocked, replacement = guard_output(content or "")
+            if blocked:
+                logfire.info("Output guard withheld the generated answer.")
+                content = replacement
 
             logfire.info("✅ Response synthesised.")
 
             return {
                 "final_answer": content,
-                "status": "Response generated.",
+                "status": "Response generated." if not blocked else "Blocked by output guard.",
                 "plan": state["plan"],
                 "messages": [{"role": "assistant", "content": content}]
             }

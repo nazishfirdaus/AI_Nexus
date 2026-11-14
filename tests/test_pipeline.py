@@ -968,6 +968,48 @@ def test_removing_every_document_clears_state(pipeline, pdf_path):
     assert answer.text == NO_CONTEXT_ANSWER
 
 
+def test_remove_document_deletes_a_managed_source_file(pipeline, pdf_path, tmp_path):
+    pipeline.ingest_document(pdf_path)
+    stored = tmp_path / "stored" / "tiny_loan.pdf"
+    stored.parent.mkdir()
+    stored.write_bytes(b"%PDF-1.4\n")
+    pipeline.document_store.set_storage_path(
+        "tiny_loan.pdf", str(stored), managed=True
+    )
+
+    pipeline.remove_document("tiny_loan.pdf")
+
+    assert not stored.exists()
+
+
+def test_remove_document_keeps_an_unmanaged_source_file(pipeline, pdf_path, tmp_path):
+    pipeline.ingest_document(pdf_path)
+    original = tmp_path / "original" / "tiny_loan.pdf"
+    original.parent.mkdir()
+    original.write_bytes(b"%PDF-1.4\n")
+    pipeline.document_store.set_storage_path(
+        "tiny_loan.pdf", str(original), managed=False
+    )
+
+    pipeline.remove_document("tiny_loan.pdf")
+
+    assert original.exists()
+
+
+def test_reset_deletes_managed_source_files(pipeline, pdf_path, tmp_path):
+    pipeline.ingest_document(pdf_path)
+    stored = tmp_path / "stored" / "tiny_loan.pdf"
+    stored.parent.mkdir()
+    stored.write_bytes(b"%PDF-1.4\n")
+    pipeline.document_store.set_storage_path(
+        "tiny_loan.pdf", str(stored), managed=True
+    )
+
+    pipeline.reset()
+
+    assert not stored.exists()
+
+
 def test_same_stem_different_extensions_do_not_alias(pipeline, pdf_path, tmp_path):
     """notes.pdf and notes.txt are two corpus entries, not one."""
     txt_path = tmp_path / "tiny_loan.txt"  # same stem as the pdf fixture

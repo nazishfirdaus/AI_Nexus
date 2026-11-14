@@ -71,8 +71,7 @@ def run_ingestion(
     collection_hash = hash_id(collection)
 
     if wipe:
-        bundle.vector_db.reset()
-        bundle.document_store.clear()
+        bundle.pipeline.reset()
         info("Wiped user corpus", collection_hash=collection_hash)
 
     files = _supported_files(root)
@@ -87,6 +86,16 @@ def run_ingestion(
                 source_type=source_type,
             ):
                 result = bundle.pipeline.ingest_document(path, source_name=path.name)
+                # Record the original location so citations can open it. This
+                # is an unmanaged reference: deleting the corpus entry must not
+                # delete the user's source directory.
+                set_storage = getattr(bundle.document_store, "set_storage_path", None)
+                if set_storage is not None:
+                    set_storage(
+                        result.document_id,
+                        str(path.resolve()),
+                        managed=False,
+                    )
                 info(
                     "File ingested",
                     pages=result.pages,
