@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from config import settings
+from src.observability import hash_id, info, span
 
 logger = logging.getLogger(__name__)
 
@@ -78,21 +79,38 @@ def list_objects(
     """
     if not bucket:
         raise CloudError("A bucket name is required")
-    paginator = client.get_paginator("list_objects_v2")
-    found: list[dict] = []
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []) or []:
-            key = obj.get("Key", "")
-            size = int(obj.get("Size", 0) or 0)
-            if not _is_supported(key, extensions):
-                continue
-            if max_bytes is not None and size > max_bytes:
-                logger.info("Skipping %s (%d bytes > cap %d)", key, size, max_bytes)
-                continue
-            found.append({"key": key, "size": size, "filename": os.path.basename(key)})
-            if len(found) >= max_files:
-                return found
-    return found
+    with span(
+        "ingestion.sources.cloud.list_objects",
+        bucket_hash=hash_id(bucket),
+        prefix_hash=hash_id(prefix) if prefix else "",
+        max_files=max_files,
+    ):
+        paginator = client.get_paginator("list_objects_v2")
+        found: list[dict] = []
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []) or []:
+                key = obj.get("Key", "")
+                size = int(obj.get("Size", 0) or 0)
+                if not _is_supported(key, extensions):
+                    continue
+                if max_bytes is not None and size > max_bytes:
+                    logger.info(
+                        "Skipping object %s (%d bytes > cap %d)",
+                        hash_id(key),
+                        size,
+                        max_bytes,
+                    )
+                    continue
+                found.append({"key": key, "size": size, "filename": os.path.basename(key)})
+                if len(found) >= max_files:
+                    info(
+                        "Listed S3 objects (capped)",
+                        bucket_hash=hash_id(bucket),
+                        objects=len(found),
+                    )
+                    return found
+        info("Listed S3 objects", bucket_hash=hash_id(bucket), objects=len(found))
+        return found
 
 
 def get_object_bytes(
@@ -107,23 +125,35 @@ def get_object_bytes(
     if max_bytes is not None:
         # Inclusive byte range: ask for at most `max_bytes`.
         kwargs["Range"] = f"bytes=0-{max_bytes - 1}"
-    try:
-        response = client.get_object(**kwargs)
-    except CloudError:
-        raise
-    except Exception as exc:
-        raise CloudError(f"Could not download s3://{bucket}/{key}: {exc}") from exc
+    with span(
+        "ingestion.sources.cloud.get_object_bytes",
+        bucket_hash=hash_id(bucket),
+        key_hash=hash_id(key),
+        max_bytes=max_bytes,
+    ):
+        try:
+            response = client.get_object(**kwargs)
+        except CloudError:
+            raise
+        except Exception as exc:
+            raise CloudError(f"Could not download s3://{bucket}/{key}: {exc}") from exc
 
-    body = response["Body"]
-    if hasattr(body, "read"):
-        data = body.read()
-    else:  # pragma: no cover - defensive for unusual clients
-        data = bytes(body)
-    if isinstance(data, str):
-        data = data.encode("utf-8")
-    if max_bytes is not None and len(data) > max_bytes:
-        data = data[:max_bytes]
-    return data
+        body = response["Body"]
+        if hasattr(body, "read"):
+            data = body.read()
+        else:  # pragma: no cover - defensive for unusual clients
+            data = bytes(body)
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        if max_bytes is not None and len(data) > max_bytes:
+            data = data[:max_bytes]
+        info(
+            "Downloaded S3 object",
+            bucket_hash=hash_id(bucket),
+            key_hash=hash_id(key),
+            bytes=len(data),
+        )
+        return data
 
 
 def collect_supported_objects(
@@ -139,11 +169,23 @@ def collect_supported_objects(
     Ready to hand to the existing `ingest_documents` UI flow - the bytes path
     keeps the original filename so the parser can dispatch on the extension.
     """
-    objects = list_objects(
-        client, bucket, prefix, max_files=max_files, max_bytes=max_bytes
-    )
-    items: list[tuple[bytes, str]] = []
-    for obj in objects:
-        data = get_object_bytes(client, bucket, obj["key"], max_bytes=max_bytes)
-        items.append((data, obj["filename"]))
-    return items
+    with span(
+        "ingestion.sources.cloud.collect_supported_objects",
+        bucket_hash=hash_id(bucket),
+        prefix_hash=hash_id(prefix) if prefix else "",
+        max_files=max_files,
+    ):
+        objects = list_objects(
+            client, bucket, prefix, max_files=max_files, max_bytes=max_bytes
+        )
+        items: list[tuple[bytes, str]] = []
+        for obj in objects:
+            data = get_object_bytes(client, bucket, obj["key"], max_bytes=max_bytes)
+            items.append((data, obj["filename"]))
+        info(
+            "Collected S3 objects",
+            bucket_hash=hash_id(bucket),
+            objects=len(items),
+            total_bytes=sum(len(data) for data, _ in items),
+        )
+        return items

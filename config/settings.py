@@ -1,4 +1,17 @@
-import os
+﻿import os
+from pathlib import Path
+
+# Load .env once, before any setting is read. The app and the standalone frontend
+# server both import this module first, so this is the earliest safe hook. Keep
+# override=False: real environment variables always win over the file.
+try:
+    from dotenv import load_dotenv
+
+    _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+    if _ENV_FILE.exists():
+        load_dotenv(_ENV_FILE, override=False)
+except Exception:  # python-dotenv is optional at runtime
+    pass
 
 # ---- Chunking / ingestion (unchanged) --------------------------------------
 CHUNK_SIZE = int(os.getenv("ANEXUS_CHUNK_SIZE", "400"))
@@ -18,7 +31,7 @@ CHUNK_MAX_TOKENS = int(os.getenv("ANEXUS_CHUNK_MAX_TOKENS", "500"))
 CHUNK_TARGET_TOKENS = int(os.getenv("ANEXUS_CHUNK_TARGET_TOKENS", "384"))
 # Token overlap carried between consecutive chunks.
 CHUNK_OVERLAP_TOKENS = int(os.getenv("ANEXUS_CHUNK_OVERLAP_TOKENS", "64"))
-# Contextual chunk headers (optional). "meta" prepends a short "title · page N"
+# Contextual chunk headers (optional). "meta" prepends a short "title Â· page N"
 # header to the text that is *embedded* (improving retrieval of context-poor
 # chunks), while the stored chunk text stays clean for citations and the LLM.
 # "off" (default) embeds the chunk text unchanged. Needs re-embedding.
@@ -28,10 +41,6 @@ CHUNK_CONTEXT_HEADER = os.getenv("ANEXUS_CHUNK_CONTEXT_HEADER", "off").strip().l
 CHUNK_SENTENCE_AWARE = os.getenv("ANEXUS_CHUNK_SENTENCE_AWARE", "0").strip().lower() in ("1", "true", "yes", "on")
 MIN_TEXT_LENGTH_FOR_OCR = 100
 OCR_DPI = 300
-# Chroma writes/reads are batched so a single huge upload or corpus never issues
-# one giant call (keeps peak RAM and Chroma request size bounded).
-CHROMA_ADD_BATCH_SIZE = int(os.getenv("ANEXUS_CHROMA_ADD_BATCH_SIZE", "512"))
-CHROMA_GET_BATCH_SIZE = int(os.getenv("ANEXUS_CHROMA_GET_BATCH_SIZE", "1000"))
 
 # ---- Optional higher-accuracy fallback engines ------------------------------
 # The baseline (PyMuPDF plain text + Tesseract OCR) is always the primary. The
@@ -122,6 +131,8 @@ SUPPORTED_EXTENSIONS = (
     ".pdf",
     ".txt",
     ".md",
+    ".html",
+    ".htm",
     ".docx",
     ".csv",
     ".xlsx",
@@ -147,6 +158,30 @@ TOP_K_RERANK = int(os.getenv("ANEXUS_TOP_K_RERANK", "5"))
 # without code changes. Default is English-tuned BGE-large; switching model
 # requires re-embedding the corpus.
 EMBEDDING_MODEL_NAME = os.getenv("ANEXUS_EMBEDDING_MODEL_NAME", "BAAI/bge-large-en")
+
+# ---- Embeddings: Gemini primary + local fallback ----------------------------
+# Primary: Google Gemini embeddings (3072-dim by default). When GEMINI_API_KEY
+# is empty or the probe fails, the process falls back to the local model below.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_EMBEDDING_MODEL = os.getenv(
+    "GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-2-preview"
+).strip()
+GEMINI_EMBEDDING_DIM = int(os.getenv("GEMINI_EMBEDDING_DIM", "3072"))
+# "auto" probes Gemini then falls back; "gemini" requires Gemini; "local"
+# skips the probe. Auto is the default so a missing key never blocks startup.
+EMBEDDING_PROVIDER = os.getenv("ANEXUS_EMBEDDING_PROVIDER", "auto").strip().lower()
+# Local fallback model. Its real dimension is read from the model at load time.
+EMBEDDING_FALLBACK_MODEL = os.getenv(
+    "ANEXUS_FALLBACK_EMBEDDING_MODEL", "all-mpnet-base-v2"
+).strip()
+EMBEDDING_FALLBACK_DIM = int(os.getenv("ANEXUS_FALLBACK_EMBEDDING_DIM", "768"))
+# Batch size for embedding calls. Small enough to stay safe on 4 GB machines.
+EMBEDDING_BATCH_SIZE = int(os.getenv("ANEXUS_EMBEDDING_BATCH_SIZE", "50"))
+# Number of Gemini rate-limit retries before surfacing the error.
+EMBEDDING_MAX_RETRIES = int(os.getenv("ANEXUS_EMBEDDING_MAX_RETRIES", "4"))
+# When true, contextual "title Â· page N" headers are embedded with chunks.
+# (Existing CHUNK_CONTEXT_HEADER controls this; kept for discoverability.)
+
 RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 # Optional local claim verification (evaluation only, opt-in via --nli).
@@ -154,8 +189,39 @@ RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 NLI_MODEL_NAME = os.getenv("ANEXUS_NLI_MODEL_NAME", "cross-encoder/nli-deberta-v3-base")
 NLI_BATCH_SIZE = 16
 
-CHROMA_PERSIST_DIRECTORY = "chroma_db"
 COLLECTION_NAME = "anexus_rag_collection"
+
+# ---- Qdrant Cloud vector store ----------------------------------------------
+# Qdrant is the only vector backend.
+
+# Qdrant Cloud connection. The ANEXUS_* names are canonical; the bare QDRANT_*
+# names and QDRANT_CLUSTER_ENDPOINT (as shown in the Qdrant dashboard) are
+# accepted so an existing .env keeps working unchanged.
+QDRANT_URL = (
+    os.getenv("ANEXUS_QDRANT_URL")
+    or os.getenv("QDRANT_URL")
+    or os.getenv("QDRANT_CLUSTER_ENDPOINT")
+    or ""
+).strip().rstrip("/")
+QDRANT_API_KEY = (
+    os.getenv("ANEXUS_QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY") or ""
+).strip()
+# Base/legacy collection name. Every tenant gets "<QDRANT_COLLECTION>__<user_id>".
+QDRANT_COLLECTION = os.getenv("ANEXUS_QDRANT_COLLECTION", COLLECTION_NAME).strip()
+# gRPC is faster on long-lived connections; REST is the safest default for
+# Qdrant Cloud behind proxies.
+QDRANT_PREFER_GRPC = os.getenv(
+    "ANEXUS_QDRANT_PREFER_GRPC", "0"
+).strip().lower() in ("1", "true", "yes", "on")
+QDRANT_TIMEOUT_S = float(os.getenv("ANEXUS_QDRANT_TIMEOUT_S", "30"))
+# Optional fixed vector size. Leave unset (default) to infer it from the first
+# batch of embeddings; a mismatch with an existing collection raises a clear
+# error instead of corrupting the index.
+QDRANT_VECTOR_DIM = int(os.getenv("ANEXUS_QDRANT_VECTOR_DIM", "0") or "0")
+# Upserts/scrolls are batched so a single huge upload never issues one giant
+# request (Qdrant Cloud caps request size) and reads stay memory-bounded.
+QDRANT_ADD_BATCH_SIZE = int(os.getenv("ANEXUS_QDRANT_ADD_BATCH_SIZE", "256"))
+QDRANT_GET_BATCH_SIZE = int(os.getenv("ANEXUS_QDRANT_GET_BATCH_SIZE", "1000"))
 
 # ---- Providers (unchanged) --------------------------------------------------
 MODEL_SETTINGS = {
@@ -189,9 +255,8 @@ def _optional_float(name: str) -> "float | None":
 
 
 # Optional relevance thresholds (OFF by default: None = no filtering).
-# Retrieval threshold is a *cosine similarity* floor on dense hits. Chroma stores
-# unit-length vectors in its default L2 space, where squared-L2 distance
-# d = 2 - 2*cos, so cos = 1 - d/2 (exact for normalized embeddings).
+# Retrieval threshold is a *cosine similarity* floor on dense hits. Qdrant
+# returns a cosine score directly, so the threshold compares against that.
 RETRIEVAL_MIN_SIMILARITY = _optional_float("ANEXUS_RETRIEVAL_MIN_SIMILARITY")
 # Cross-encoder score floor (raw logit from ms-marco MiniLM; higher = more relevant).
 RERANK_MIN_SCORE = _optional_float("ANEXUS_RERANK_MIN_SCORE")
@@ -257,7 +322,7 @@ INTENT_PREFERRED_PROVIDER = {
 QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 # PII redaction (Presidio)
-SPACY_MODEL = "en_core_web_sm"   # small model: fits 4 GB RAM / Streamlit Cloud
+SPACY_MODEL = "en_core_web_sm"   # small model: fits a 4 GB RAM budget
 PII_SCORE_THRESHOLD = 0.4
 # Chunks overlap, so a label ("A/c No.") and the value it introduces can end up in
 # different chunks. This many trailing characters of each chunk are carried into the
@@ -281,8 +346,9 @@ PII_ENTITIES = [
 #               city name stays readable while "S/o X, H.No. 12, Lucknow - 226010"
 #               does not.
 
-# Quota tracker
-QUOTA_STATE_PATH = os.path.join(os.path.dirname(__file__), "streamlit_quota.json")
+# Quota tracker (state file is rebuilt from observed 429s; the old
+# "streamlit_quota.json" name predates the React client)
+QUOTA_STATE_PATH = os.path.join(os.path.dirname(__file__), "quota_state.json")
 RATE_LIMIT_COOLDOWN_S = 60
 ERROR_COOLDOWN_S = 20
 MAX_COOLDOWN_S = 900
@@ -326,16 +392,7 @@ USER_DATA_DIR = os.path.join(_PROJECT_ROOT, "data", "users")
 # stretched with SHA-256 into a 32-byte key. Only needed to save credentials.
 SECRET_KEY = os.getenv("ANEXUS_SECRET_KEY", "").strip()
 
-# Local development escape hatch: when true, skip OIDC and act as DEV_USER_EMAIL
-# (auto-provisioned as a normal user). NEVER enable this in a deployed environment.
-AUTH_DISABLED = os.getenv("ANEXUS_AUTH_DISABLED", "0").strip().lower() in ("1", "true", "yes")
-DEV_USER_EMAIL = os.getenv("ANEXUS_DEV_EMAIL", "dev@localhost").strip().lower()
-
-# Friendly provider name shown on the login screen (Streamlit reads the real
-# OIDC client config from the [auth] block in secrets.toml).
-AUTH_PROVIDER_NAME = os.getenv("ANEXUS_AUTH_PROVIDER_NAME", "Google").strip()
-
-# Any authenticated OIDC identity is auto-provisioned as a normal user.
+# Account states used by the user registry.
 ROLE_USER = "user"
 
 STATUS_ACTIVE = "active"
@@ -353,3 +410,21 @@ WEB_CRAWL_DELAY_S = 1.0            # politeness delay between page fetches
 CLOUD_MAX_FILES = 50               # hard cap on objects imported per run
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "").strip()  # empty = real AWS
 S3_REGION = os.getenv("S3_REGION", "").strip()
+
+# ---- Observability (Logfire / OpenTelemetry) --------------------------------
+# LOGFIRE_TOKEN is read by the SDK. When absent (or SEND is explicitly 0),
+# configure_observability() runs locally with no cloud export, so tests and
+# offline development never send traces. Set LOGFIRE_SEND_TO_LOGFIRE=1 to force
+# export when a token is present.
+LOGFIRE_TOKEN = os.getenv("LOGFIRE_TOKEN", "").strip()
+LOGFIRE_SEND_TO_LOGFIRE = os.getenv("LOGFIRE_SEND_TO_LOGFIRE", "").strip().lower()
+LOGFIRE_CONSOLE = os.getenv("LOGFIRE_CONSOLE", "0").strip().lower() in ("1", "true", "yes", "on")
+LOGFIRE_SERVICE_NAME = os.getenv("LOGFIRE_SERVICE_NAME", "anexus").strip()
+LOGFIRE_ENVIRONMENT = os.getenv(
+    "LOGFIRE_ENVIRONMENT",
+    os.getenv("ANEXUS_ENV", "development"),
+).strip()
+LOGFIRE_LOG_LEVEL = os.getenv("LOGFIRE_LOG_LEVEL", "WARNING").strip().upper()
+LOGFIRE_SYSTEM_METRICS = os.getenv("LOGFIRE_SYSTEM_METRICS", "0").strip().lower() in (
+    "1", "true", "yes", "on"
+)

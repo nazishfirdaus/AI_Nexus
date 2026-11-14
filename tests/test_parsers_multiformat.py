@@ -376,8 +376,8 @@ def test_dispatcher_rejects_missing_file(tmp_path):
 
 def test_supported_extensions_cover_every_parser():
     assert set(SUPPORTED_EXTENSIONS) == {
-        ".pdf", ".txt", ".md", ".docx", ".csv", ".xlsx", ".pptx",
-        ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff",
+        ".pdf", ".txt", ".md", ".html", ".htm", ".docx", ".csv", ".xlsx",
+        ".pptx", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff",
     }
 
 

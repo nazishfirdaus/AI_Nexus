@@ -45,7 +45,7 @@ Temperature sweep / index reuse (for real-provider tuning):
         --temperature "0.0,0.1,0.3"
 
     * ``--reuse-index`` skips reset+ingest and rebuilds BM25/registry from the
-      on-disk Chroma collection (use after one normal ingest run), so a
+      Qdrant collection (use after one normal ingest run), so a
       temperature sweep does not pay the multi-minute ingest again;
     * ``--temperature`` accepts a comma-separated list; each value is swept in a
       single process and written to its own results file;
@@ -90,6 +90,7 @@ from config import settings
 from evaluation import metrics
 from evaluation.cost import CostMeter
 from src.generation.llm import build_default_handler
+from src.observability import configure_observability
 from src.pipeline_factory import build_pipeline, reset_pipeline_cache
 from src.redaction.presidio_scrubber import scrub_chunks
 from src.retrieval.reranker import RankedChunk
@@ -659,7 +660,7 @@ def _answer_relevance(answer_text: str, expected: str | None) -> float | None:
     if not expected:
         return None
     try:
-        from src.ingestion.embedder import embed_texts
+        from src.services.retrieval.embedding import embed_texts
 
         return metrics.answer_relevance(answer_text, str(expected), embed_texts)
     except Exception:  # pragma: no cover - depends on the local model
@@ -719,7 +720,7 @@ def _posthoc_nli(results_path: Path) -> bool:
 
     The NLI cross-encoder (~700 MB) must not be resident beside the embedder,
     presidio and torch: on the 4 GB eval box that combination pages and
-    chroma's pool times out on every query (~100x slower rows). A fresh
+    rows slow down by ~100x. A fresh
     process loads only the NLI model, so the two footprints never overlap.
     Failures never invalidate the run - it just keeps its rows without nli_*.
     """
@@ -772,6 +773,7 @@ def _preflight(handler, provider: str | None) -> None:
 
 
 def main() -> None:
+    configure_observability(service_name="anexus-eval")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--file", "--pdf", dest="files", action="append",
@@ -791,7 +793,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--reuse-index", action="store_true",
-        help="Skip reset+ingest; rebuild from the on-disk Chroma collection.",
+        help="Skip reset+ingest; rebuild from the Qdrant collection.",
     )
     parser.add_argument("--repeat", type=int, default=1, help="Repeat the whole sweep N times")
     parser.add_argument("--tag", default="", help="Output file tag (for sweeps)")

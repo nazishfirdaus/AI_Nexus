@@ -18,45 +18,43 @@ python -m venv .venv
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm # needed by the Presidio PII scrubber
 
-# Configure login + the credential vault (see below), then:
-streamlit run app.py                    # open the browser tab shown in the terminal
+# Terminal 1 — API
+uvicorn src.api.main:app --reload --port 8000
+
+# Terminal 2 — React client
+cd frontend
+npm install
+npm run dev                             # http://localhost:5173
 ```
 
-To run **without** an identity provider for local development, set
-`ANEXUS_AUTH_DISABLED=true` (and `ANEXUS_SECRET_KEY`); you are signed in as a
-local admin and the Settings/Admin pages work as normal.
+The client talks to the API through Vite's `/api` proxy; see
+[`frontend/README.md`](frontend/README.md) for `VITE_API_KEY` and tenant setup.
 
-> **Python version:** developed on **Python 3.13** (project venv). Streamlit Cloud
-> targets **Python 3.12**; the code is 3.10+-compatible and does not pin to 3.13-only
-> syntax, so both work. Runtime overhead from model loading is expected on low-RAM
-> machines (target: 4 GB RAM):
+> **Python version:** developed on **Python 3.13** (project venv). Runtime overhead
+> from model loading is expected on low-RAM machines (target: 4 GB RAM):
 
 | Startup cost           | Approx. time |
 |------------------------|--------------|
 | Presidio + spaCy       | ~35 s (once)  |
 | RAG pipeline cold import | ~2 min (once) |
 
-Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first use.
+The local embedding fallback (~420 MB) and MiniLM reranker (~90 MB) download on
+first use; Gemini embeddings are called remotely and download nothing.
 
 ## Authentication, users & isolation
 
-- **Login** uses Streamlit's native OIDC auth (`st.login` / `st.user`). Copy
-  `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` (gitignored) and
-  fill in an `[auth]` block (OAuth client id/secret, `cookie_secret`,
-  `server_metadata_url`) plus `ANEXUS_SECRET_KEY`.
-- **Provisioning is automatic.** Any identity that authenticates via OIDC is
-  auto-provisioned as a normal user on first login and immediately gets its own
-  isolated area. There are no roles or admin page. Accounts start active; an
-  account can still be disabled in the registry if you need to revoke access.
-- **Bring your own keys (BYOK).** Each user stores their own LLM provider keys and
-  S3 credentials on the **Settings** page. They are encrypted at rest (Fernet) and
-  never displayed again. A user's keys take precedence over any deployment-wide
-  env keys; with no keys saved, the deployment defaults (or the simulated LLM) are
-  used.
-- **Full per-user isolation.** Every account has its own Chroma collection and its
-  own SQLite database (`data/users/<id>/app.sqlite3`), so documents and chats can
-  never leak across accounts. Heavy models (BGE embedder, cross-encoder reranker,
-  Presidio/spaCy) stay process-shared to fit the RAM budget.
+- **Tenant selection** is the `X-User-Id` request header, chosen in the client's
+  Settings page and stored in `localStorage`. When absent the API falls back to
+  `ANEXUS_DEV_USER_ID` (default `dev`).
+- **No authentication yet.** The header is trusted as-is: any client can claim any
+  tenant. Put an authenticating proxy (or OIDC) in front of the API before exposing
+  it beyond localhost; `X-User-Id` is the seam where the verified identity should be
+  injected.
+- **Full per-user isolation.** Every tenant has its own Qdrant collection
+  (`<COLLECTION_NAME>__<user_id>`) and its own SQLite database
+  (`data/users/<id>/app.sqlite3`), so documents and chats cannot leak across
+  accounts. The embedding model, cross-encoder reranker and Presidio/spaCy stay
+  process-shared to fit the RAM budget.
 
 ## Supported formats
 
@@ -67,12 +65,17 @@ Model downloads (BGE embedder ~1.3 GB, MiniLM reranker ~90 MB) happen on first u
 | Word | `.docx` | python-docx; headings start a new citation page, tables rendered row-per-record |
 | Spreadsheet | `.xlsx`, `.csv` | openpyxl / csv; `Header: value` rows, 50 rows per citation page, one page series per sheet |
 | PowerPoint | `.pptx` | python-pptx; one citation page per slide (incl. tables and speaker notes) |
+| HTML | `.html`, `.htm` | BeautifulSoup; scripts/styles removed, body text becomes one citation page |
 | Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`, `.tiff` | Tesseract OCR (single page); optional RapidOCR fallback |
 
 Non-PDF formats have no real pages, so logical units (heading sections, slide
 numbers, sheet row blocks) act as pages — citations like "Page 3" mean slide 3
 or the third row block. A document's identity is its **full filename**, so
 `notes.pdf` and `notes.txt` coexist in one corpus.
+
+Every format is dispatched through `parse_document` in `src/ingestion/parsers/`,
+which returns page-level LangChain `Document`s with a shared metadata schema
+(`document_id`, `filename`, `page_number`, `source`, `ocr_used`).
 
 ## Other import sources
 
@@ -85,6 +88,114 @@ or the third row block. A document's identity is its **full filename**, so
   MinIO, Cloudflare R2) from the Settings page, then import every supported file
   under a prefix. Objects are streamed with a size cap; the same format parsers
   used for uploads handle the bytes.
+
+## Bulk ingestion (CLI)
+
+`src/ingestion/processor.py` ingests an existing folder through the same pipeline
+the app uses (parse → chunk → embed → Qdrant → SQLite registry → BM25):
+
+```bash
+python -m src.ingestion.processor Dataset --user-id <user_id>
+python -m src.ingestion.processor Dataset --user-id <user_id> --wipe
+python -m src.ingestion.processor Dataset --user-id <user_id> --json
+```
+
+Documents land in that user's collection (`<COLLECTION_NAME>__<user_id>`) and
+registry, so they appear in the app's Library. Chunk ids are deterministic
+(`<document_id>_p<page>_c<n>`) and mapped to stable Qdrant point ids (UUIDv5), so
+re-running the command overwrites chunks instead of duplicating them. `--wipe`
+clears that user's vectors and registry first; `--json` additionally mirrors ingest
+stats to `processed_data/<source_type>/`.
+
+## Services
+
+`src/services/retrieval/` contains the model-facing services:
+
+| Module | Purpose |
+|---|---|
+| `embedding.py` | Embedding provider: Gemini primary (`gemini-embedding-2-preview`, 3072-dim) with a local `sentence-transformers` fallback (768-dim). Exposes `embed_texts`, `embed_documents`, `embed_query`, `get_embedding_dim`, `get_embedding_model`, `get_active_model_info`, `token_length`. |
+| `qdrant_service.py` | Thin Qdrant query helper (`search_enterprise_knowledge`). |
+| `ranking_service.py` | Optional FlashRank reranker service. |
+
+The embedder resolves lazily, so building a pipeline or a chunker never loads a model.
+
+## HTTP API (React backend)
+
+`src/api/` is a FastAPI app that serves both the JSON API and the built React
+client.
+
+```bash
+uvicorn src.api.main:app --reload --port 8000
+# or
+python -m src.api
+```
+
+OpenAPI docs: <http://localhost:8000/docs>. When `frontend/dist` exists the API
+also serves the client at `/`, falling back to `index.html` for client routes.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Tenant collection name + Qdrant configuration |
+| `POST` | `/api/chat` | Ask a question; persists the user + assistant messages |
+| `POST` | `/api/chat/stream` | Same, server-sent events (`meta`, `delta`, `done`/`error`) |
+| `GET` / `POST` | `/api/conversations` | List / create conversations |
+| `GET` / `PATCH` / `DELETE` | `/api/conversations/{id}` | Detail with messages / rename / delete |
+| `POST` | `/api/messages/{id}/feedback` | `{"value": "up" \| "down" \| null}` |
+| `GET` | `/api/documents` | Tenant corpus |
+| `GET` / `DELETE` | `/api/documents/{id}` | One document / remove its chunks + registry entry |
+| `POST` | `/api/documents` | Multipart upload + ingest |
+| `GET` | `/api/agent` | LangGraph nodes, edges and Mermaid source |
+| `POST` | `/api/agent/query` | Run planner → retriever → responder behind NeMo guardrails |
+| `GET` | `/api/eval/runs` | Evaluation artifacts in `evaluation/results*.json` |
+| `GET` | `/api/eval/runs/{name}` | One run's summary and rows |
+
+Each tenant gets `<collection_name>__<user_id>` in Qdrant and
+`data/users/<user_id>/app.sqlite3` for conversations and the document registry.
+The tenant comes from the `X-User-Id` header and defaults to `dev` locally.
+
+API settings (`.env`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANEXUS_CORS_ORIGINS` | Vite 5173/4173, 3000, 8000 | Browser origins allowed to call the API |
+| `ANEXUS_API_KEY` / `FRONTEND_API_KEY` | unset | When set, every `/api` route except `/api/health` requires `X-API-Key` |
+| `ANEXUS_API_RATE_LIMIT` | `120` | Requests per minute per client IP |
+| `ANEXUS_MAX_UPLOAD_MB` | `50` | Maximum document upload size |
+| `ANEXUS_DEV_USER_ID` | `dev` | Tenant used when `X-User-Id` is absent |
+| `ANEXUS_API_WARMUP` | `0` | Build the default tenant's pipeline at startup instead of on first request |
+
+```bash
+curl -H "X-API-Key: ${ANEXUS_API_KEY:-$FRONTEND_API_KEY}" \
+     -H "Content-Type: application/json" \
+     -d '{"message":"What is the loan amount?"}' \
+     http://localhost:8000/api/chat
+```
+
+## Embeddings & vector store
+
+| Setting | Value |
+|---|---|
+| Primary embedder | Google Gemini `models/gemini-embedding-2-preview`, 3072-dim |
+| Fallback embedder | Local `sentence-transformers` `all-mpnet-base-v2`, 768-dim |
+| Vector store | Qdrant Cloud (the only backend) |
+| Collection naming | `<COLLECTION_NAME>__<user_id>`, one per tenant |
+| Distance metric | Cosine (`models.Distance.COSINE`) |
+
+Provider selection is controlled by `ANEXUS_EMBEDDING_PROVIDER`:
+
+- `auto` (default) — probe Gemini once; use it when `GEMINI_API_KEY` is set and
+  the probe succeeds, otherwise fall back to the local model;
+- `gemini` — require Gemini and fail loudly if the key or probe fails;
+- `local` — skip the network probe and use the local model.
+
+Vectors are L2-normalised before upsert. The collection dimension is inferred
+from the first write (or fixed with `ANEXUS_QDRANT_VECTOR_DIM`); a mismatch with
+an existing collection raises `EmbeddingDimensionMismatch` instead of silently
+mixing vector spaces. Changing providers therefore requires resetting the
+collection and re-ingesting (`python -m scripts.reset_vector_store --all-users`).
+
+Chunk text and metadata live in the Qdrant payload; the SQLite registry stores
+the document list. Gemini only produces vectors — it stores nothing.
 
 ## Optional higher-accuracy fallback engines
 
@@ -202,7 +313,7 @@ contexts survive the cross-encoder reranker.
 Two **optional, off-by-default** relevance floors can trim weak hits:
 
 - `ANEXUS_RETRIEVAL_MIN_SIMILARITY` — minimum cosine similarity for a dense hit
-  (derived from Chroma's squared-L2 distance for unit-length vectors: `cos = 1 - d/2`);
+  (Qdrant returns a cosine `score` in `0..1`);
 - `ANEXUS_RERANK_MIN_SCORE` — minimum cross-encoder logit.
 
 Both unset means no filtering; if every candidate falls below a floor the query
@@ -231,7 +342,8 @@ hybrid retrieval.
 
 The sidebar **Search in** selector restricts a question to a single ingested
 document (default: all documents). The scope is applied to *both* retrieval
-channels — Chroma's `where` filter for dense and a candidate filter for BM25 — so
+channels — a `document_id` metadata filter for dense (Qdrant) and a
+candidate filter for BM25 — so
 fused results can only come from the chosen document. Selecting "All documents"
 keeps the default behavior. Removing the scoped document resets the selector to
 "All documents".
@@ -264,20 +376,21 @@ The evaluation harness reports `citation_support_rate` (share of model-cited
 
 Tunings that matter most once the corpus grows past a few hundred documents:
 
-- **Batched writes** — chunks are added to Chroma in batches
-  (`ANEXUS_CHROMA_ADD_BATCH_SIZE`, default 512) so large uploads stay within the
-  memory budget, and full-corpus reads paginate with offset
-  (`ANEXUS_CHROMA_GET_BATCH_SIZE`, default 1000).
+- **Batched writes** — chunks are upserted into Qdrant in batches
+  (`ANEXUS_QDRANT_ADD_BATCH_SIZE`, default 256) so large uploads stay within the
+  request budget, and full-corpus reads scroll in pages
+  (`ANEXUS_QDRANT_GET_BATCH_SIZE`, default 1000).
 - **Incremental BM25** — adding a new document extends the in-memory keyword index
   with just that document's tokenized chunks instead of re-reading the whole
   vector store; re-ingests, removals and clears still rebuild fully for correctness.
 - **Unicode-aware tokens** — the BM25 tokenizer keeps numbers intact (`7.25`,
   `4,50,000`) and tokenizes accented/CJK/Devanagari text, so keyword recall works
   for non-English corpora even while the default English embedder is unchanged.
-- **Multilingual embeddings (optional)** — set `ANEXUS_EMBEDDING_MODEL_NAME` to a
-  multilingual model (e.g. `BAAI/bge-m3` or `jinaai/jina-embeddings-v3`). Note the
-  vector store is not re-embedded automatically; choose before a large ingestion
-  or rebuild afterwards.
+- **Multilingual embeddings (optional)** — set `ANEXUS_EMBEDDING_PROVIDER=local`
+  and `ANEXUS_FALLBACK_EMBEDDING_MODEL` to a multilingual model (e.g.
+  `BAAI/bge-m3` or `jinaai/jina-embeddings-v3`). Note the vector store is not
+  re-embedded automatically; choose before a large ingestion or reset and rebuild
+  afterwards.
 - **Content-hash dedup** — every document is fingerprinted (file bytes for
   uploads, deterministic page-text hash for web/cloud sources). Uploading the same
   content under a different name either informs the user and skips
@@ -310,7 +423,7 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 - **Accounts & roles** — OIDC login with an admin-managed allowlist; admins
   provision users and manage roles/status from the Admin page. Each account's
   documents, chats, and credentials are fully isolated.
-- **Hybrid retrieval** — dense (BGE-large) + BM25 fused with Reciprocal Rank Fusion, then a local cross-encoder rereank.
+- **Hybrid retrieval** — dense (Gemini embeddings, local fallback) + BM25 fused with Reciprocal Rank Fusion, then a local cross-encoder rereank.
 - **PII security gate** — a Presidio scrubber with custom Indian recognizers removes identifying tokens before any LLM call: names (including honorific-matched Indian names), addresses, phone, email, PAN, Aadhaar, voter ID, driving licence, passport, TAN, plus bank and loan account numbers, IFSC, MICR, GSTIN, UPI/VPA, cheque, policy and application numbers. Dates and bare city names are kept — loan and property answers depend on them — while the pinpoint parts of an address are not. The same scrubber also cleans the answer text and the page citation snippets, which are built from the unredacted stored chunks.
 - **Label-anchored account numbers** — an Indian account number is 8–20 bare digits, indistinguishable from a loan amount, so those patterns require a label ("A/c no.", "Loan A/c", "Cheque no.") next to the value. Because chunk boundaries can split a label from its value, each chunk is scrubbed with the tail of the previous one as matching context.
 - **Semantic routing** — the query intent picks the first provider; the rest of the chain follows the configured fallback order, so a provider outage degrades gracefully instead of failing.
@@ -332,7 +445,7 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
   summaries) are stored per user in SQLite under `data/users/<id>/app.sqlite3`.
   Conversations are not bound to a document: any chat can ask about any uploaded
   document. The sidebar lists, renames and deletes conversations; they survive
-  restarts and the uploaded documents are re-attached from the registry/Chroma
+  restarts and the uploaded documents are re-attached from the registry/vector store
   without re-uploading.
 - **Message feedback** - every assistant message carries thumbs up/down; the
   choice is persisted per message in SQLite (`feedback` column) and survives
@@ -352,10 +465,10 @@ properties. Disable with `ANEXUS_EXTRACT_EMBEDDED_METADATA=false`.
 Unit tests use fakes so they run offline, fast, and never download models:
 
 ```bash
-python -m pytest -q          # 533 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
+python -m pytest -q          # 639 passing (optional OCR-extras tests self-skip without requirements-ocr.txt)
 ```
 
-Real-model tests (BGE embedder, live retrieval) can be run locally with:
+Real-model tests (local embedder, live retrieval) can be run locally with:
 
 ```bash
 $env:ANEXUS_RUN_REAL_TESTS=1
@@ -396,8 +509,8 @@ context recall (fraction of gold answer points present in the retrieved context)
 curated literal answer points, citation precision/coverage, **groundedness**
 (claim-level token-overlap of each answer sentence against the retrieved
 context — an offline stand-in for RAGAS faithfulness), and **answer relevance**
-(cosine similarity between the answer and the golden answer using the existing
-BGE embedder). Safety is measured as PII-leak rate.
+(cosine similarity between the answer and the golden answer using the configured
+embedder). Safety is measured as PII-leak rate.
 
 **Retrieval vs generation attribution:** `--oracle` re-answers every question
 with the gold pages injected as context (retrieval bypassed). A high oracle
@@ -482,8 +595,8 @@ Each answer is split into claims and checked against the retrieved context
 with `cross-encoder/nli-deberta-v3-base`, adding `nli_claim_count`,
 `nli_entailed_fraction` and `nli_contradiction_fraction` per row and to the
 summary. The scorer always runs in a **separate process**: resident next to
-the embedder, the ~700 MB model pushed this 4 GB box into paging - chroma's
-connection pool timed out on every query and rows took ~100x longer.
+the embedder, the ~700 MB model pushed this 4 GB box into paging - the vector
+store's connection pool timed out on every query and rows took ~100x longer.
 
 ### TruthfulQA (closed-book hallucination baseline)
 
@@ -521,7 +634,8 @@ requirements: `pip install -r requirements.txt -r requirements-eval.txt`.
 ```
 src/
   auth/          secrets vault (Fernet), user store (SQLite), tenant naming, OIDC claim resolution
-  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, CSV/XLSX, PPTX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), embedder (BGE), vectordb (Chroma), document store (SQLite registry)
+  ingestion/     parsers/ (format dispatcher: PDF+OCR, DOCX, PPTX, HTML, CSV/XLSX, text, images; ocr.py = Tesseract->RapidOCR fallback), sources/ (website crawler, S3 client), chunker (recursive, self-contained), vectordb (Qdrant Cloud factory), qdrant_vectordb (Qdrant store), document_store (SQLite registry), processor.py (bulk-ingest CLI)
+  services/      retrieval/embedding.py (Gemini + local fallback), retrieval/qdrant_service.py, retrieval/ranking_service.py
   retrieval/     hybrid retriever (dense+BM25 RRF), query expander, cross-encoder reranker
   redaction/     Presidio scrubber + build_llm_inputs security gate
   routing/       semantic router + quota tracker
@@ -530,22 +644,22 @@ src/
   rag_pipeline.py       end-to-end orchestrator
   pipeline_factory.py   dependency wiring (test doubles supported)
 config/          prompts, settings, quota state
-.streamlit/      secrets.toml (gitignored) + secrets.toml.example (OIDC config)
+frontend/        React + Vite client (chat, library, agent, eval)
 auth_db/         user accounts + encrypted credentials (created at runtime, gitignored)
 data/            per-user SQLite databases (created at runtime, gitignored)
 chat_db/         legacy single-tenant SQLite registry (gitignored)
 evaluation/      golden dataset + harness
 tests/           pytest suite (fakes; real-model tests gated by ANEXUS_RUN_REAL_TESTS)
-app.py           Streamlit UI
 ```
 
 ## Troubleshooting
 
 - **`ModuleNotFoundError: No module named 'nltk'` / slow `import langchain_text_splitters`** — not required; the chunker is self-contained. Do not add `langchain_text_splitters` to hot import paths.
 - **First query is slow** — the embedder/reranker/spaCy models load lazily once per process; subsequent turns are fast.
-- **Chroma lock errors on re-ingest** — only one process should write a user's
-  collection at a time; re-ingesting a document replaces that document's chunks,
-  and the sidebar's "Clear all documents" resets the store.
+- **Qdrant write failures on re-ingest** — confirm `ANEXUS_QDRANT_URL` /
+  `ANEXUS_QDRANT_API_KEY` are set. If the embedding model changed, the collection
+  dimension no longer matches; reset the user's collection
+  (`python -m scripts.reset_vector_store --all-users`) and re-ingest.
 - **Missing spaCy model** — run `python -m spacy download en_core_web_sm`.
 
 ## License

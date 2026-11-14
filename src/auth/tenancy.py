@@ -1,6 +1,6 @@
 """Per-user namespace helpers.
 
-Every tenant gets its own Chroma collection and its own SQLite database file, so
+Every tenant gets its own Qdrant collection and its own SQLite database file, so
 documents and chats are isolated simply by construction - there is no shared
 collection that a ``where`` filter must guard, and no shared table that a missing
 ``WHERE user_id`` could leak across accounts.
@@ -16,7 +16,7 @@ from config import settings
 
 
 def user_collection_name(user_id: str) -> str:
-    """Chroma collection name dedicated to one user."""
+    """Qdrant collection name dedicated to one user."""
     return f"{settings.COLLECTION_NAME}__{user_id}"
 
 

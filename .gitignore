@@ -1,33 +1,38 @@
+# --- Python ---
 .venv/
-
 __pycache__/
-
 *.pyc
-
-.env
-
-.streamlit/secrets.toml
-
-chroma_db/
-
-evaluation/results.json
-
-evaluation/ragas_report.json
-
-evaluation/ragas_real.json
-
-evaluation/data/
-
-evaluation/truthfulqa_closed_book.json
-
 .pytest_cache/
-
 .coverage
 htmlcov/
 
-*.log
-
+# --- Local config & secrets ---
+.env
 .vscode/
+
+# --- Runtime data (created on first use, never committed) ---
 chat_db/
 auth_db/
 data/
+processed_data/
+*.log
+
+# --- Tooling caches ---
+.deepeval/
+node_modules
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+
+# --- Evaluation ---
+# results.json is the transient output of run_eval (--out default) and is
+# rewritten by every local run and CI pass, so it stays local.
+evaluation/results.json
+# The curated experiment records (results_baseline, results_allflags,
+# results_tokenaware, results_real_summary) are committed on purpose: the
+# React Eval view reads them.
+evaluation/data/
+
+# --- Local-only design notes ---
+DESIGN.md
+Document.md

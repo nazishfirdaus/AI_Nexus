@@ -24,6 +24,7 @@ from langchain_core.documents import Document
 
 from config import settings
 from config.prompts import SUMMARY_PROMPT
+from src.errors import DuplicateDocumentError  # re-exported for existing imports
 from src.generation.aggregator import Aggregator, FinalAnswer
 from src.generation.llm import (
     AllProvidersFailed,
@@ -31,7 +32,7 @@ from src.generation.llm import (
     LLMResponse,
     ScrubbedText,
 )
-from src.ingestion import embedder as embedder_module
+from src.services.retrieval import embedding as embedder_module
 from src.ingestion.chunker import Chunker
 from src.ingestion.document_store import DocumentStore
 # parse_document imported lazily in ingest_document to reduce startup cost
@@ -52,6 +53,8 @@ from src.retrieval.reranker import CrossEncoderReranker, RankedChunk
 from src.retrieval.retriever import HybridRetriever
 from src.routing.quota_tracker import QuotaTracker
 from src.routing.semantic_router import RouteDecision, SemanticRouter
+
+from src.observability import hash_id, span
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +102,7 @@ def _build_default_chunker() -> Chunker:
     """
 
     if settings.CHUNK_TOKEN_AWARE:
-        from src.ingestion.embedder import token_length
+        from src.services.retrieval.embedding import token_length
 
         return Chunker(
             chunk_size=settings.CHUNK_MAX_TOKENS,
@@ -168,12 +171,6 @@ def _page_overcleaned(page: Document) -> bool:
     if raw < settings.MIN_TEXT_LENGTH_FOR_OCR:
         return False
     return raw > 0 and (clean / raw) < settings.MIN_PAGE_CONTENT_RATIO
-
-
-class DuplicateDocumentError(ValueError):
-    """Raised when content already exists under another document name and the
-    configured DEDUP_ACTION is "skip". The UI reports it as information, not as an
-    ingestion failure."""
 
 
 @dataclass
@@ -487,10 +484,16 @@ class RAGPipeline:
 
         # Contextual headers (opt-in): embed "title · page N" + text while the
         # stored chunk text stays clean for citations and the LLM.
-        if settings.CHUNK_CONTEXT_HEADER == "meta":
-            vectors = _embed_chunk_vectors(self.embedder, _chunk_embed_texts(chunks))
-        else:
-            vectors = self.embedder.embed_documents(chunks)
+        with span(
+            "rag.embed_chunks",
+            chunk_count=len(chunks),
+            context_header=settings.CHUNK_CONTEXT_HEADER,
+            document_id=hash_id(document_id),
+        ):
+            if settings.CHUNK_CONTEXT_HEADER == "meta":
+                vectors = _embed_chunk_vectors(self.embedder, _chunk_embed_texts(chunks))
+            else:
+                vectors = self.embedder.embed_documents(chunks)
         if len(vectors) != len(chunks):
             raise RuntimeError(
                 f"Embedding mismatch: {len(chunks)} chunks, {len(vectors)} vectors"
@@ -534,7 +537,7 @@ class RAGPipeline:
             "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs "
             "(mean %.0f chars, max %d; +%d duplicate chunk(s) dropped, "
             "%d short chunk(s) dropped, %d boilerplate line(s) removed)",
-            filename,
+            hash_id(filename),
             len(page_documents),
             len(chunks),
             duration,
@@ -546,10 +549,9 @@ class RAGPipeline:
         )
         if pages_overcleaned:
             logger.warning(
-                "%d page(s) of %s lost most of their text to cleaning "
+                "%d page(s) lost most of their text to cleaning "
                 "(check extraction quality / cleaning settings)",
                 pages_overcleaned,
-                filename,
             )
         return IngestionResult(
             pages=len(page_documents),
@@ -664,14 +666,22 @@ class RAGPipeline:
             return prepared
 
         try:
-            llm_response = self.llm_handler.generate(
-                prepared.scrubbed_query,
-                prepared.scrubbed_context,
-                provider_order=prepared.route.provider_order,
-                history=prepared.turns,
-                summary=prepared.summary,
-                temperature=settings.LLM_TEMPERATURE,
-            )
+            with span(
+                "rag.generate",
+                provider_order=",".join(prepared.route.provider_order),
+                intent=prepared.route.intent,
+                context_chunks=len(prepared.reranked),
+                has_history=bool(prepared.turns),
+                has_summary=bool(prepared.summary),
+            ):
+                llm_response = self.llm_handler.generate(
+                    prepared.scrubbed_query,
+                    prepared.scrubbed_context,
+                    provider_order=prepared.route.provider_order,
+                    history=prepared.turns,
+                    summary=prepared.summary,
+                    temperature=settings.LLM_TEMPERATURE,
+                )
         except Exception as e:
             logger.exception("All LLM providers failed")
             return self.aggregator.graceful_failure(
@@ -720,14 +730,22 @@ class RAGPipeline:
             raw_parts.clear()
             stream_meta.clear()
             try:
-                stream = self.llm_handler.generate_stream(
-                    prepared.scrubbed_query,
-                    prepared.scrubbed_context,
-                    provider_order=prepared.route.provider_order,
-                    history=prepared.turns,
-                    summary=prepared.summary,
-                    temperature=settings.LLM_TEMPERATURE,
-                )
+                with span(
+                    "rag.generate_stream",
+                    provider_order=",".join(prepared.route.provider_order),
+                    intent=prepared.route.intent,
+                    context_chunks=len(prepared.reranked),
+                    has_history=bool(prepared.turns),
+                    has_summary=bool(prepared.summary),
+                ):
+                    stream = self.llm_handler.generate_stream(
+                        prepared.scrubbed_query,
+                        prepared.scrubbed_context,
+                        provider_order=prepared.route.provider_order,
+                        history=prepared.turns,
+                        summary=prepared.summary,
+                        temperature=settings.LLM_TEMPERATURE,
+                    )
                 for raw_chunk in stream:
                     raw_parts.append(raw_chunk)
                     delta = scrubber.feed(raw_chunk)
@@ -834,9 +852,21 @@ class RAGPipeline:
             queries = [search_query] + expanded
 
         if len(queries) == 1:
-            retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
+            with span(
+                "rag.retrieve",
+                mode="hybrid",
+                query_variants=1,
+                document_scoped=document_id is not None,
+            ):
+                retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
         else:
-            retrieved = self.retriever.multi_query_retrieve(queries, document_id)
+            with span(
+                "rag.retrieve",
+                mode="multi_query",
+                query_variants=len(queries),
+                document_scoped=document_id is not None,
+            ):
+                retrieved = self.retriever.multi_query_retrieve(queries, document_id)
 
         if not retrieved and search_query != query:
             # The rewrite went nowhere: fall back to the user's raw query.
@@ -851,7 +881,12 @@ class RAGPipeline:
             return self.aggregator.no_context(routing_reason="No context matched the query.")
 
         # 2) Local cross-encoder reranking
-        reranked = self.reranker.rerank(search_query, retrieved, top_k=settings.TOP_K_RERANK)
+        with span(
+            "rag.rerank",
+            candidate_count=len(retrieved),
+            top_k=settings.TOP_K_RERANK,
+        ):
+            reranked = self.reranker.rerank(search_query, retrieved, top_k=settings.TOP_K_RERANK)
         if not reranked:
             return self.aggregator.no_context(routing_reason="Reranker found no relevant context.")
 
@@ -931,7 +966,7 @@ class RAGPipeline:
     def restore_documents(self) -> list[dict]:
         """Re-attach stored documents after a restart, if their vectors remain.
 
-        Chroma persists on disk but the registry and BM25 are rebuilt. The
+        Qdrant persists remotely but the registry and BM25 are rebuilt. The
         registry is the source of truth when it has rows; otherwise (upgrade
         from the single-document version, or a wiped registry) the document
         list is reconstructed from chunk metadata and backfilled. Registry rows
@@ -989,7 +1024,7 @@ class RAGPipeline:
             logger.info(
                 "Restored %d document(s): %s",
                 len(restored),
-                ", ".join(r["filename"] for r in restored),
+                ", ".join(hash_id(r["filename"]) for r in restored),
             )
         return restored
 

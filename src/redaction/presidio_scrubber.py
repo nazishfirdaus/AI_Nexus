@@ -1,8 +1,9 @@
-"""PII scrubbing with Microsoft Presidio. Runs locally; nothing leaves the machine.
+﻿"""PII scrubbing with Microsoft Presidio. Runs locally; nothing leaves the machine.
 
 Position in the architecture: the security boundary sits between reranking and the
-cloud LLM. Ingestion, embeddings and ChromaDB are all local, so stored chunks keep
-their original text; ONLY text that is about to be sent to a provider is scrubbed.
+cloud LLM. Ingestion, embeddings and the vector store keep their original text, so
+stored chunks are not redacted; ONLY text that is about to be sent to a provider is
+scrubbed.
 Aggregator._scrub applies the same scrubber to the answer text and the page
 citation snippets, which are built from raw chunks and would otherwise be the one
 place unredacted PII reaches the screen.
@@ -47,11 +48,14 @@ try:
     from presidio_analyzer import (  # type: ignore
         EntityRecognizer, Pattern, PatternRecognizer, RecognizerResult,
     )
-except Exception:
-    EntityRecognizer = object  # type: ignore
-    Pattern = object  # type: ignore
-    PatternRecognizer = object  # type: ignore
-    RecognizerResult = object  # type: ignore
+except Exception as _presidio_import_error:  # pragma: no cover - exercised in CI
+    # Fail with a message that names the missing package. Falling back to
+    # ``object`` here produced "TypeError: object() takes no arguments" at
+    # class-body evaluation, which says nothing about the real cause.
+    raise ImportError(
+        "presidio-analyzer is required by src/redaction/presidio_scrubber.py. "
+        "Install it with: pip install presidio-analyzer presidio-anonymizer"
+    ) from _presidio_import_error
 
 # Stub torch/transformers before full Presidio import to avoid pulling heavy deps
 _stubs: list[str] = []
@@ -631,7 +635,7 @@ class PresidioScrubber:
         with self._lock:
             if self._analyzer is None:
                 # Presidio would otherwise try to download a missing model and then
-                # call sys.exit(), which would kill the whole Streamlit process.
+                # call sys.exit(), which would kill the whole server process.
                 import spacy.util
 
                 if not spacy.util.is_package(self.spacy_model):

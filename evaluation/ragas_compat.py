@@ -79,10 +79,35 @@ class _MissingLangchainCommunityFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if not fullname.startswith(_PREFIX) or fullname in sys.modules:
             return None
-        if importlib.machinery.PathFinder.find_spec(fullname, path) is not None:
+        if self._real_module_exists(fullname, path):
             return None  # the real module exists - never shadow it
         return importlib.machinery.ModuleSpec(
             fullname, _StubModuleLoader(), is_package=True
+        )
+
+    @staticmethod
+    def _real_module_exists(fullname: str, path) -> bool:
+        """Ask the path finder, resolving ``path`` for dotted names.
+
+        ``PathFinder.find_spec`` treats the last component as a *top-level*
+        module when ``path`` is ``None``, so ``...chat_models.vertexai`` would
+        incorrectly match an unrelated installed ``vertexai`` package. When the
+        import machinery calls us it already supplies the parent package's
+        ``path``; only direct callers need this fallback.
+        """
+        if path is None:
+            parent_name = fullname.rpartition(".")[0]
+            parent = sys.modules.get(parent_name)
+            if parent is None:
+                try:
+                    parent = importlib.import_module(parent_name)
+                except Exception:
+                    return False
+            path = getattr(parent, "__path__", None)
+            if path is None:
+                return False
+        return (
+            importlib.machinery.PathFinder.find_spec(fullname, path) is not None
         )
 
 

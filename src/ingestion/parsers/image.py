@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.observability import hash_id, info, span
 from langchain_core.documents import Document
 
 from config.settings import IMAGE_EXTENSIONS, OCR_DPI
@@ -24,38 +25,54 @@ def parse_image(
 ) -> list[Document]:
     """OCR an image into a single page-level Document."""
 
-    path = validate_file(file_path, ALLOWED_EXTENSIONS)
+    with span(
+        "ingestion.parsers.image.parse_image",
+        file_id=hash_id(str(file_path)),
+        file_ext=Path(str(file_path)).suffix.lower(),
+        dpi=dpi,
+        requested_engine=ocr_engine or "auto",
+    ):
+        path = validate_file(file_path, ALLOWED_EXTENSIONS)
 
-    from PIL import Image, ImageOps
+        from PIL import Image, ImageOps
 
-    with Image.open(path) as opened:
-        image = ImageOps.exif_transpose(opened).convert("L")
+        with Image.open(path) as opened:
+            image = ImageOps.exif_transpose(opened).convert("L")
 
-        zoom = max(1.0, dpi / 96)
-        if zoom > 1.0:
-            image = image.resize(
-                (int(image.width * zoom), int(image.height * zoom)),
-                Image.LANCZOS,
+            zoom = max(1.0, dpi / 96)
+            if zoom > 1.0:
+                image = image.resize(
+                    (int(image.width * zoom), int(image.height * zoom)),
+                    Image.LANCZOS,
+                )
+
+            extracted_text, engine_used = ocr.ocr_image_with_engine(
+                image, engine=ocr_engine
             )
 
-        extracted_text, engine_used = ocr.ocr_image_with_engine(
-            image, engine=ocr_engine
+        normalized, stats = clean_page_text(extracted_text)
+
+        if not normalized:
+            info(
+                "Image OCR produced no text",
+                engine=engine_used,
+            )
+            return []
+
+        info(
+            "Parsed image with OCR",
+            engine=engine_used,
+            char_count=len(normalized),
         )
-
-    normalized, stats = clean_page_text(extracted_text)
-
-    if not normalized:
-        return []
-
-    return [
-        make_document(
-            normalized,
-            filename=path.name,
-            page_number=1,
-            ocr_used=True,
-            doc_type="image",
-            extractor="ocr",
-            ocr_engine=engine_used,
-            **stats,
-        )
-    ]
+        return [
+            make_document(
+                normalized,
+                filename=path.name,
+                page_number=1,
+                ocr_used=True,
+                doc_type="image",
+                extractor="ocr",
+                ocr_engine=engine_used,
+                **stats,
+            )
+        ]

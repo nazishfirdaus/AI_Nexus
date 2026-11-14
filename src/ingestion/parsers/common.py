@@ -12,6 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.observability import info, span
 from langchain_core.documents import Document
 
 from config.settings import (
@@ -242,55 +243,67 @@ def drop_repeated_boilerplate(
     if len(pages) < min_pages:
         return pages, 0
 
-    total = len(pages)
-    counts: dict[str, int] = {}
-    lines_per_page: list[list[str]] = []
+    with span(
+        "ingestion.parsers.common.drop_repeated_boilerplate",
+        page_count=len(pages),
+        min_pages=min_pages,
+        min_page_fraction=min_page_fraction,
+    ):
+        total = len(pages)
+        counts: dict[str, int] = {}
+        lines_per_page: list[list[str]] = []
 
-    for page in pages:
-        lines = [
-            line
-            for line in (page.page_content or "").split("\n")
-            if line.strip()
-        ]
-        lines_per_page.append(lines)
-        for line in set(lines):
-            key = line.lower()
-            counts[key] = counts.get(key, 0) + 1
+        for page in pages:
+            lines = [
+                line
+                for line in (page.page_content or "").split("\n")
+                if line.strip()
+            ]
+            lines_per_page.append(lines)
+            for line in set(lines):
+                key = line.lower()
+                counts[key] = counts.get(key, 0) + 1
 
-    threshold = max(2, math.ceil(total * min_page_fraction))
-    boilerplate = {
-        key
-        for key, count in counts.items()
-        if count >= threshold
-        and len(key) >= min_line_chars
-        and not _is_protected_line(key)
-    }
+        threshold = max(2, math.ceil(total * min_page_fraction))
+        boilerplate = {
+            key
+            for key, count in counts.items()
+            if count >= threshold
+            and len(key) >= min_line_chars
+            and not _is_protected_line(key)
+        }
 
-    if not boilerplate:
-        return pages, 0
+        if not boilerplate:
+            return pages, 0
 
-    removed_total = 0
+        removed_total = 0
 
-    for page, lines in zip(pages, lines_per_page):
-        kept = [line for line in lines if line.lower() not in boilerplate]
-        removed_here = len(lines) - len(kept)
-        if removed_here == 0:
-            continue
+        for page, lines in zip(pages, lines_per_page):
+            kept = [line for line in lines if line.lower() not in boilerplate]
+            removed_here = len(lines) - len(kept)
+            if removed_here == 0:
+                continue
 
-        page_len = len("\n".join(lines))
-        kept_len = len("\n".join(kept))
-        # Never clean a page down to (near) nothing: revert that page's removal.
-        floor = max(MIN_CHUNK_CHARS, MIN_PAGE_CONTENT_RATIO * page_len)
-        if kept_len < floor:
-            continue
+            page_len = len("\n".join(lines))
+            kept_len = len("\n".join(kept))
+            # Never clean a page down to (near) nothing: revert that page's removal.
+            floor = max(MIN_CHUNK_CHARS, MIN_PAGE_CONTENT_RATIO * page_len)
+            if kept_len < floor:
+                continue
 
-        page.page_content = "\n".join(kept)
-        meta = dict(page.metadata or {})
-        meta["boilerplate_lines_removed"] = removed_here
-        page.metadata = meta
-        removed_total += removed_here
+            page.page_content = "\n".join(kept)
+            meta = dict(page.metadata or {})
+            meta["boilerplate_lines_removed"] = removed_here
+            page.metadata = meta
+            removed_total += removed_here
 
-    return pages, removed_total
+        info(
+            "Removed repeated boilerplate",
+            pages=total,
+            distinct_lines=len(boilerplate),
+            lines_removed=removed_total,
+        )
+        return pages, removed_total
 
 
 def validate_file(file_path: str | Path, allowed: tuple[str, ...]) -> Path:
@@ -367,23 +380,29 @@ def group_sections(
     """
 
     pages: list[str] = []
-    buffer: list[str] = []
-    size = 0
+    with span(
+        "ingestion.parsers.common.group_sections",
+        section_count=len(sections),
+        target_chars=target_chars,
+    ):
+        buffer: list[str] = []
+        size = 0
 
-    for section in sections:
-        if buffer and size + len(section) > target_chars:
+        for section in sections:
+            if buffer and size + len(section) > target_chars:
+                pages.append("\n\n".join(buffer))
+                buffer, size = [], 0
+            buffer.append(section)
+            size += len(section) + 2
+            if size >= target_chars:
+                pages.append("\n\n".join(buffer))
+                buffer, size = [], 0
+
+        if buffer:
             pages.append("\n\n".join(buffer))
-            buffer, size = [], 0
-        buffer.append(section)
-        size += len(section) + 2
-        if size >= target_chars:
-            pages.append("\n\n".join(buffer))
-            buffer, size = [], 0
 
-    if buffer:
-        pages.append("\n\n".join(buffer))
-
-    return pages
+        info("Grouped sections into pages", pages=len(pages))
+        return pages
 
 
 _SEPARATOR_CELL_RE = re.compile(r"^[\-\|:=_.·~]+$")
@@ -419,24 +438,31 @@ def render_table_lines(rows: list[list[str]]) -> list[str]:
         cleaned.append(cells)
 
     if not cleaned:
+        info("Table had no renderable rows", input_rows=len(rows))
         return []
 
-    width = max(len(row) for row in cleaned)
-    header = _padded(cleaned[0], width)
-    lines: list[str] = []
+    with span(
+        "ingestion.parsers.common.render_table_lines",
+        input_rows=len(rows),
+        kept_rows=len(cleaned),
+    ):
+        width = max(len(row) for row in cleaned)
+        header = _padded(cleaned[0], width)
+        lines: list[str] = []
 
-    for row in cleaned[1:]:
-        data = _padded(row, width)
-        pairs = [
-            f"{name}: {value}"
-            for name, value in zip(header, data)
-            if name and value
-        ]
-        if pairs:
-            lines.append(" | ".join(pairs))
+        for row in cleaned[1:]:
+            data = _padded(row, width)
+            pairs = [
+                f"{name}: {value}"
+                for name, value in zip(header, data)
+                if name and value
+            ]
+            if pairs:
+                lines.append(" | ".join(pairs))
 
-    if not lines:
-        # Header-only table: keep whatever content exists instead of dropping it.
-        lines = [" | ".join(cell for cell in row if cell) for row in cleaned]
+        if not lines:
+            # Header-only table: keep whatever content exists instead of dropping it.
+            lines = [" | ".join(cell for cell in row if cell) for row in cleaned]
 
-    return lines
+        info("Rendered table", columns=width, lines=len(lines))
+        return lines
