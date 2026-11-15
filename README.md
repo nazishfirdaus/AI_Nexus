@@ -664,8 +664,28 @@ auth_db/         optional SQLite account/credential store (gitignored; not wired
 data/            per-user SQLite databases (created at runtime, gitignored)
 chat_db/         legacy single-tenant SQLite registry (gitignored)
 evaluation/      golden dataset + harness
+docs/            component architecture READMEs (ingestion, retrieval, evaluation, observability, agents, api)
 tests/           pytest suite (fakes; real-model tests gated by ANEXUS_RUN_REAL_TESTS)
 ```
+
+## Architecture
+
+Component-level architecture documentation is in `docs/`:
+
+| Component | Document | Scope |
+|---|---|---|
+| Ingestion | [`docs/INGESTION.md`](docs/INGESTION.md) | Parsers, OCR, normalization, chunking, embedding, Qdrant upsert, registry, bulk CLI |
+| Retrieval | [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) | Dense + BM25 hybrid retrieval, weighted RRF, query rewrite/expansion, cross-encoder reranking, filters |
+| Evaluation | [`docs/EVALUATION.md`](docs/EVALUATION.md) | Golden datasets, offline metrics, oracle attribution, RAGAS judge, NLI, TruthfulQA, CI gates |
+| Observability | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) | Logfire/OpenTelemetry setup, span conventions, redaction, LangSmith, debugging |
+| Agents | [`docs/AGENT.md`](docs/AGENT.md) | LangGraph planner → retriever → responder graph, gateway, guardrails, agent memory and limits |
+| API | [`docs/API.md`](docs/API.md) | FastAPI routers, schemas, tenant/auth model, error model, SSE chat, static frontend serving |
+
+The end-to-end request path is:
+
+`POST /api/chat` → `RAGPipeline.answer_query()` → history rewrite → retrieval
+(dense + BM25, RRF) → rerank → PII scrub → semantic route → generation →
+citation aggregation → persisted turn.
 
 ## Troubleshooting
 
