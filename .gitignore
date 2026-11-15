@@ -19,7 +19,8 @@ processed_data/
 
 # --- Tooling caches ---
 .deepeval/
-node_modules
+node_modules/
+.bin/
 frontend/dist/
 frontend/.env.local
 frontend/.env.*.local
