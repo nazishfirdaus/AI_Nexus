@@ -1,6 +1,6 @@
 """Tests for the multi-track hardening work.
 
-Track A (scale/batching)   — Chroma batch sizes, paginated get_all_documents
+Track A (scale/batching)   — Qdrant batch sizes, paginated get_all_documents
 Track B (encoding/language)— unicode BM25 tokenizer (kept in retriever tests)
 Track C (tables)           — render_table_lines hardening, merged xlsx cells,
                              pdfplumber table gating helpers
@@ -24,8 +24,8 @@ from src.rag_pipeline import DuplicateDocumentError, RAGPipeline
 def test_settings_multitrack_defaults():
     from config import settings as s
 
-    assert s.CHROMA_ADD_BATCH_SIZE == 512
-    assert s.CHROMA_GET_BATCH_SIZE == 1000
+    assert s.QDRANT_ADD_BATCH_SIZE == 256
+    assert s.QDRANT_GET_BATCH_SIZE == 1000
     assert s.EMBEDDING_MODEL_NAME == "BAAI/bge-large-en"
     assert s.PDF_TABLE_EXTRACTION == "auto"
     assert s.DEDUP_ACTION == "skip"

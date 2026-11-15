@@ -27,7 +27,7 @@ Why post-hoc and not inline in ``run_eval``
 subprocess once generation has finished, rather than scoring rows as they
 complete. Resident next to the BGE embedder (~1.3 GB), presidio/spacy and
 torch, the NLI weights pushed a 4 GB machine into paging, which showed up as
-chroma pool timeouts and ~100x slower rows. In a fresh process only the NLI
+~100x slower rows. In a fresh process only the NLI
 model is loaded, so the two footprints never overlap; if loading fails,
 ``run_eval`` warns and keeps the results without ``nli_*`` fields.
 """
@@ -230,8 +230,7 @@ def main(argv: list[str] | None = None) -> None:
 
     Deliberately a *separate process* from ``evaluation.run_eval``: the NLI
     model (~700 MB) must not sit in memory next to the embedder + presidio,
-    which on the 4 GB eval box pushes the machine into paging and makes
-    chroma's pool time out on every query.
+    which on the 4 GB eval box pushes the machine into paging.
     """
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter

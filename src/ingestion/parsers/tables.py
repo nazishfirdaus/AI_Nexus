@@ -12,6 +12,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from src.observability import hash_id, info, span
 from langchain_core.documents import Document
 
 from config import settings
@@ -148,7 +149,7 @@ def _rows_to_documents(
 
     extra = {"doc_type": "table", "sheet": sheet} if sheet else {"doc_type": "table"}
     extra.update(doc_meta or {})
-    return [
+    documents = [
         make_document(
             page_text,
             filename=filename,
@@ -159,6 +160,12 @@ def _rows_to_documents(
         )
         for page_number, page_text in enumerate(pages, start=page_start)
     ]
+    info(
+        "Rendered table rows",
+        row_count=len(lines),
+        page_count=len(documents),
+    )
+    return documents
 
 
 def parse_csv(
@@ -167,14 +174,28 @@ def parse_csv(
 ) -> list[Document]:
     """Parse a CSV file; the first row is treated as the header."""
 
-    path = validate_file(file_path, CSV_EXTENSIONS)
+    with span(
+        "ingestion.parsers.tables.parse_csv",
+        file_id=hash_id(str(file_path)),
+        rows_per_page=rows_per_page,
+    ):
+        path = validate_file(file_path, CSV_EXTENSIONS)
 
-    # Decode with the same fallback chain as other text formats (utf-8, utf-8-sig,
-    # latin-1, replace) instead of assuming utf-8, so cp1252/latin-1 CSVs parse.
-    text = read_text_bytes(path.read_bytes())
-    rows = list(csv.reader(io.StringIO(text)))
+        # Decode with the same fallback chain as other text formats (utf-8,
+        # utf-8-sig, latin-1, replace) instead of assuming utf-8, so cp1252/latin-1
+        # CSVs parse.
+        text = read_text_bytes(path.read_bytes())
+        rows = list(csv.reader(io.StringIO(text)))
 
-    return _rows_to_documents(rows, filename=path.name, rows_per_page=rows_per_page)
+        documents = _rows_to_documents(
+            rows, filename=path.name, rows_per_page=rows_per_page
+        )
+        info(
+            "Parsed CSV",
+            row_count=len(rows),
+            page_count=len(documents),
+        )
+        return documents
 
 
 def parse_xlsx(
@@ -183,35 +204,47 @@ def parse_xlsx(
 ) -> list[Document]:
     """Parse an .xlsx workbook; every sheet becomes its own set of pages."""
 
-    path = validate_file(file_path, XLSX_EXTENSIONS)
+    with span(
+        "ingestion.parsers.tables.parse_xlsx",
+        file_id=hash_id(str(file_path)),
+        rows_per_page=rows_per_page,
+    ):
+        path = validate_file(file_path, XLSX_EXTENSIONS)
 
-    from openpyxl import load_workbook
+        from openpyxl import load_workbook
 
-    workbook = load_workbook(str(path), read_only=True, data_only=True)
-    doc_meta = _workbook_metadata(workbook)
+        workbook = load_workbook(str(path), read_only=True, data_only=True)
+        doc_meta = _workbook_metadata(workbook)
 
-    try:
-        documents: list[Document] = []
-        # Page numbers run across the whole workbook: chunk ids and citation
-        # keys are (document_id, page_number), so per-sheet restarts would
-        # collide.
-        page_start = 1
-        for index, sheet in enumerate(workbook.worksheets):
-            rows = [
-                ["" if cell is None else str(cell) for cell in row]
-                for row in sheet.iter_rows(values_only=True)
-            ]
-            rows = _fill_merged_cells(rows, _sheet_merge_ranges(workbook, index))
-            sheet_documents = _rows_to_documents(
-                rows,
-                filename=path.name,
-                rows_per_page=rows_per_page,
-                sheet=sheet.title,
-                page_start=page_start,
-                doc_meta=doc_meta,
+        try:
+            documents: list[Document] = []
+            # Page numbers run across the whole workbook: chunk ids and citation
+            # keys are (document_id, page_number), so per-sheet restarts would
+            # collide.
+            page_start = 1
+            sheet_count = 0
+            for index, sheet in enumerate(workbook.worksheets):
+                sheet_count += 1
+                rows = [
+                    ["" if cell is None else str(cell) for cell in row]
+                    for row in sheet.iter_rows(values_only=True)
+                ]
+                rows = _fill_merged_cells(rows, _sheet_merge_ranges(workbook, index))
+                sheet_documents = _rows_to_documents(
+                    rows,
+                    filename=path.name,
+                    rows_per_page=rows_per_page,
+                    sheet=sheet.title,
+                    page_start=page_start,
+                    doc_meta=doc_meta,
+                )
+                documents.extend(sheet_documents)
+                page_start += len(sheet_documents)
+            info(
+                "Parsed XLSX",
+                sheet_count=sheet_count,
+                page_count=len(documents),
             )
-            documents.extend(sheet_documents)
-            page_start += len(sheet_documents)
-        return documents
-    finally:
-        workbook.close()
+            return documents
+        finally:
+            workbook.close()

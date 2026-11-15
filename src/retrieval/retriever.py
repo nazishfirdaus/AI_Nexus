@@ -1,5 +1,5 @@
 # src/retrieval/retriever.py
-"""Hybrid retrieval : dense from ChromaDB + BM25, fused with RRF."""
+"""Hybrid retrieval : dense from the vector store (Qdrant by default) + BM25, fused with RRF."""
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +14,7 @@ from rank_bm25 import BM25Plus
 from config import settings
 from config.settings import BASE_K_RETRIEVAL
 
-if TYPE_CHECKING:  # avoids importing Chroma/the embedder just to import this module
+if TYPE_CHECKING:  # avoids importing the vector store/embedder just to import this module
     from src.ingestion.vectordb import VectorDB
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ _TOKEN_RE = re.compile(r"[^\W_]+(?:[.,][0-9]+)*")
 class HybridRetriever:
     """
     Hybrid retrieval using:
-      1. Dense retrieval from ChromaDB
+      1. Dense retrieval from the configured vector store (Qdrant Cloud)
       2. Sparse retrieval from BM25
     Results are fused with Reciprocal Rank Fusion.
     """
@@ -61,7 +61,7 @@ class HybridRetriever:
     def embedding_model(self):
         """Loaded lazily, so importing/constructing the retriever never loads BGE."""
         if self._embedding_model is None:
-            from src.ingestion.embedder import get_embedding_model
+            from src.services.retrieval.embedding import get_embedding_model
 
             self._embedding_model = get_embedding_model()
         return self._embedding_model
@@ -82,10 +82,10 @@ class HybridRetriever:
         """Append chunks to the BM25 index without re-tokenizing the old corpus.
 
         Used on the append path of ingestion: instead of reading *every* chunk
-        back from Chroma and re-tokenizing the whole corpus, only the new chunks
-        are tokenized and ``BM25Plus`` is re-instantiated over the cached
-        tokenized lists (BM25's idf depends on the whole document set, so the
-        scorer object itself still has to be rebuilt, but tokenization -- the
+        back from the vector store and re-tokenizing the whole corpus, only the
+        new chunks are tokenized and ``BM25Plus`` is re-instantiated over the
+        cached tokenized lists (BM25's idf depends on the whole document set, so
+        the scorer object itself still has to be rebuilt, but tokenization -- the
         expensive part -- is not repeated).
 
         After a delete/reset/restore a full ``rebuild_bm25`` must be used
@@ -119,8 +119,9 @@ class HybridRetriever:
         logger.info("BM25 index rebuilt from %d chunk(s)", len(documents))
 
     def _ensure_bm25(self) -> None:
-        """BM25 is in memory, Chroma is on disk: after an app restart BM25 would be empty
-        and search silently dense-only. Rebuild once from the vector DB if possible."""
+        """BM25 is in memory, Qdrant is remote: after an app restart BM25 would be
+        empty and search silently dense-only. Rebuild once from the vector DB if
+        possible."""
         if self.bm25 is not None or self._rebuild_attempted:
             return
         self._rebuild_attempted = True
@@ -137,35 +138,44 @@ class HybridRetriever:
     # -------------------------------------------------------------- retrieval
     @staticmethod
     def _cosine_similarity(document: Document) -> Optional[float]:
-        """Recover cosine similarity from Chroma's stored distance.
+        """Recover cosine similarity from a vector-store hit.
 
-        Embeddings are unit-length and the collection uses Chroma's default L2
-        space, which stores the *squared* L2 distance ``d = 2 - 2*cos``; therefore
-        ``cos = 1 - d/2`` (clamped for numerical safety). Returns ``None`` when no
-        distance is present, so a threshold never discards such a hit.
+        Qdrant reports cosine similarity directly in ``metadata["similarity"]``.
+        Returns ``None`` when the field is absent, so a threshold never
+        discards such a hit.
         """
-        distance = (document.metadata or {}).get("distance")
-        if distance is None:
+        meta = document.metadata or {}
+        similarity = meta.get("similarity")
+        if similarity is None:
             return None
-        return max(-1.0, min(1.0, 1.0 - float(distance) / 2.0))
+        return max(-1.0, min(1.0, float(similarity)))
 
     def dense_retrieve(self, query: str, document_id: Optional[str] = None) -> List[Document]:
-        """Semantic retrieval using ChromaDB.
+        """Semantic retrieval using Qdrant.
 
-        When ``document_id`` is given, the search is restricted (via a Chroma
-        metadata filter) to that document's chunks. When the optional
+        When ``document_id`` is given, the search is restricted (via a metadata
+        filter) to that document's chunks. When the optional
         ``RETRIEVAL_MIN_SIMILARITY`` threshold is set, hits below that cosine
-        similarity are dropped (hits without a distance are always kept).
+        similarity are dropped (hits without a similarity score are always kept).
         """
         if not query.strip():
             return []
         where = {"document_id": document_id} if document_id is not None else None
         try:
-            query_embedding = self.embedding_model.encode(
-                self.query_prefix + query,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-            ).tolist()
+            if self._embedding_model is None:
+                # Production path: the embedding service applies the provider's
+                # own query handling and returns a unit-length vector.
+                from src.services.retrieval.embedding import embed_query
+
+                query_embedding = embed_query(query)
+            else:
+                # Injected model (tests / custom embedders): keep the legacy
+                # BGE-style encode path with the query instruction prefix.
+                query_embedding = self._embedding_model.encode(
+                    self.query_prefix + query,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                ).tolist()
             hits = list(
                 self.vector_db.search(
                     query_embedding=query_embedding, k=self.k, where=where

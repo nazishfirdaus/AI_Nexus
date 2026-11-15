@@ -8,6 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from src.observability import hash_id, info, span
+
 from config.settings import IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS
 
 if TYPE_CHECKING:
@@ -22,46 +24,63 @@ def parse_document(file_path: str | Path) -> "list[Document]":
     Raises FileNotFoundError/ValueError with a clear message for missing,
     empty or unsupported files.
     """
-
     path = Path(file_path)
-    extension = path.suffix.lower()
+    with span(
+        "ingestion.parsers.parse_document",
+        file_id=hash_id(str(path)),
+        extension=path.suffix.lower(),
+    ):
+        extension = path.suffix.lower()
 
-    if extension == ".pdf":
-        from .pdf import parse_pdf
+        if extension == ".pdf":
+            from .pdf import parse_pdf
 
-        return parse_pdf(path)
+            documents = parse_pdf(path)
 
-    if extension in (".txt", ".md"):
-        from .text import parse_text
+        elif extension in (".txt", ".md"):
+            from .text import parse_text
 
-        return parse_text(path)
+            documents = parse_text(path)
 
-    if extension == ".docx":
-        from .docx import parse_docx
+        elif extension in (".html", ".htm"):
+            from .html import parse_html
 
-        return parse_docx(path)
+            documents = parse_html(path)
 
-    if extension == ".csv":
-        from .tables import parse_csv
+        elif extension == ".docx":
+            from .docx import parse_docx
 
-        return parse_csv(path)
+            documents = parse_docx(path)
 
-    if extension == ".xlsx":
-        from .tables import parse_xlsx
+        elif extension == ".csv":
+            from .tables import parse_csv
 
-        return parse_xlsx(path)
+            documents = parse_csv(path)
 
-    if extension == ".pptx":
-        from .slides import parse_pptx
+        elif extension == ".xlsx":
+            from .tables import parse_xlsx
 
-        return parse_pptx(path)
+            documents = parse_xlsx(path)
 
-    if extension in IMAGE_EXTENSIONS:
-        from .image import parse_image
+        elif extension == ".pptx":
+            from .slides import parse_pptx
 
-        return parse_image(path)
+            documents = parse_pptx(path)
 
-    raise ValueError(
-        f"Unsupported file type '{extension or '(no extension)'}'. "
-        f"Supported formats: {', '.join(SUPPORTED_EXTENSIONS)}"
-    )
+        elif extension in IMAGE_EXTENSIONS:
+            from .image import parse_image
+
+            documents = parse_image(path)
+
+        else:
+            raise ValueError(
+                f"Unsupported file type '{extension or '(no extension)'}'. "
+                f"Supported formats: {', '.join(SUPPORTED_EXTENSIONS)}"
+            )
+
+        info(
+            "Document parsed",
+            extension=extension,
+            page_count=len(documents),
+        )
+        return documents

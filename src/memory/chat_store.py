@@ -1,7 +1,7 @@
-"""SQLite-backed chat persistence: conversations and their messages.
+﻿"""SQLite-backed chat persistence: conversations and their messages.
 
 The store is deliberately dependency-free (stdlib sqlite3) and opens a fresh
-connection per operation so it is safe under Streamlit's threaded reruns.
+connection per operation so it is safe under concurrent requests.
 `db_path` is injectable so tests never touch the real database.
 
 Schema:
@@ -215,6 +215,18 @@ class ChatStore:
             item.pop("conversation_id", None)
             messages.append(item)
         return messages
+
+    def get_message(self, message_id: int) -> Optional[dict]:
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM messages WHERE id = ?", (int(message_id),)
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        raw = item.pop("citations", None)
+        item["citations"] = json.loads(raw) if raw else None
+        return item
 
     def message_count(self, conversation_id: str) -> int:
         with self._lock, self._connection() as conn:

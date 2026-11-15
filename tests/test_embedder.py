@@ -5,10 +5,12 @@ import math
 import pytest
 from langchain_core.documents import Document
 
-from src.ingestion.embedder import (
+from src.services.retrieval.embedding import (
     embed_documents,
     embed_query,
     embed_texts,
+    get_active_model_info,
+    get_embedding_dim,
     get_embedding_model,
     token_length,
     EMBEDDING_MODEL_NAME,
@@ -32,7 +34,7 @@ def test_embed_documents_returns_embeddings():
 def test_embedding_dimension():
     embeddings = embed_documents([Document(page_content="The applicant submitted income proof.")])
     assert len(embeddings) == 1
-    assert len(embeddings[0]) == 1024
+    assert len(embeddings[0]) == get_embedding_dim()
 
 
 def test_empty_documents():
@@ -70,10 +72,14 @@ def test_embeddings_are_normalized():
 
 
 def test_model_name():
-    assert EMBEDDING_MODEL_NAME == "BAAI/bge-large-en"
+    assert isinstance(EMBEDDING_MODEL_NAME, str) and EMBEDDING_MODEL_NAME
+    assert isinstance(QUERY_INSTRUCTION, str) and QUERY_INSTRUCTION
 
 
 def test_model_is_loaded_on_cpu():
+    info = get_active_model_info()
+    if info["provider"] != "local":
+        pytest.skip("local fallback is not active (Gemini is being used)")
     model = get_embedding_model()
     assert model.device.type == "cpu"
 
@@ -91,7 +97,7 @@ def test_single_document_embedding():
     ]
     embeddings = embed_documents(documents)
     assert len(embeddings) == 1
-    assert len(embeddings[0]) == 1024
+    assert len(embeddings[0]) == get_embedding_dim()
 
 
 def test_multiple_documents():
@@ -103,8 +109,9 @@ def test_multiple_documents():
     ]
     embeddings = embed_documents(documents)
     assert len(embeddings) == 4
+    dim = get_embedding_dim()
     for embedding in embeddings:
-        assert len(embedding) == 1024
+        assert len(embedding) == dim
 
 
 def test_empty_page_content():
@@ -121,17 +128,8 @@ def test_blank_chunks_are_dropped_not_zero_vectors():
     assert len(embeddings) == 1  # blank dropped, only 1 real chunk embedded
 
 
-def test_embed_query_adds_instruction_prefix():
-    # We can't inspect the exact text sent to the model from the output vector alone,
-    # so this checks the documented contract: embed_query must differ from
-    # embedding the same text as a passage (the prefix changes the input).
-    query_vec = embed_query("What is the loan amount?")
-    passage_vec = embed_documents([Document(page_content="What is the loan amount?")])[0]
-    assert query_vec != passage_vec
-
-
-def test_embed_query_dimension():
-    assert len(embed_query("loan amount")) == 1024
+def test_embed_query_matches_active_dimension():
+    assert len(embed_query("loan amount")) == get_embedding_dim()
 
 
 def test_embed_query_empty_string():

@@ -1,5 +1,5 @@
 """Tests for the user's HybridRetriever API (dense_retrieve / bm25_retrieve / hybrid_retrieve).
-No BGE model or Chroma needed: both are replaced by fakes."""
+No embedding model or vector store needed: both are replaced by fakes."""
 import pytest
 from langchain_core.documents import Document
 
@@ -180,6 +180,25 @@ def test_hybrid_retrieve_honours_settings_weights(monkeypatch):
     assert r.hybrid_retrieve("interest rate")[0].metadata["chunk_id"] == 1
 
 
+# ------------------------------------------------------------------ dense embedding path
+def test_dense_uses_embed_query_when_no_model_injected(monkeypatch):
+    import src.services.retrieval.embedding as embedding
+
+    seen = {}
+
+    def fake_embed_query(text):
+        seen["query"] = text
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(embedding, "embed_query", fake_embed_query)
+    db = FakeDB()
+    r = HybridRetriever(db, None)  # production path: no injected model
+    r.dense_retrieve("loan amount")
+
+    assert seen["query"] == "loan amount"  # instruction is applied inside embed_query
+    assert db.calls[0][0] == [0.1, 0.2]
+
+
 # ------------------------------------------------------------------ per-document scope
 def two_doc_chunks():
     return [
@@ -215,11 +234,10 @@ def test_hybrid_retrieve_only_returns_the_scoped_document():
 
 # ------------------------------------------------------------------ dense similarity threshold
 def _scored_chunks():
-    # Distance is squared-L2 for unit vectors: cos = 1 - d/2. 0.2 -> 0.9, 1.6 -> 0.2.
     return [
-        Document(page_content="near", metadata={"chunk_id": 1, "distance": 0.2}),
-        Document(page_content="far", metadata={"chunk_id": 2, "distance": 1.6}),
-        Document(page_content="no distance", metadata={"chunk_id": 3}),
+        Document(page_content="near", metadata={"chunk_id": 1, "similarity": 0.9}),
+        Document(page_content="far", metadata={"chunk_id": 2, "similarity": 0.2}),
+        Document(page_content="no score", metadata={"chunk_id": 3}),
     ]
 
 
@@ -229,7 +247,7 @@ def test_dense_min_similarity_drops_low_scores(monkeypatch):
     docs = _scored_chunks()
     monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.5)
     out = make(db=FakeDB(docs), docs=docs).dense_retrieve("q")
-    # 0.9 kept, 0.2 dropped, missing-distance kept.
+    # 0.9 kept, 0.2 dropped, missing-score kept.
     assert [d.metadata["chunk_id"] for d in out] == [1, 3]
 
 
@@ -244,6 +262,6 @@ def test_dense_min_similarity_disabled_by_default(monkeypatch):
 def test_dense_min_similarity_can_drop_everything(monkeypatch):
     from config import settings
 
-    docs = _scored_chunks()[:2]  # only scored chunks, no missing-distance escape hatch
+    docs = _scored_chunks()[:2]  # only scored chunks, no missing-score escape hatch
     monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.99)
     assert make(db=FakeDB(docs), docs=docs).dense_retrieve("q") == []

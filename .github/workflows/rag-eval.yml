@@ -2,7 +2,7 @@ name: RAG Evaluation Gate
 
 on:
   push:
-    branches: [main, ashfaque-development]
+    branches: [main, nazish-development, ashfaque-development]
   pull_request:
     branches: [main]
 
@@ -43,12 +43,30 @@ jobs:
     defaults:
       run:
         shell: bash
+    services:
+      # Ephemeral Qdrant: real ANN search without touching a shared collection.
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+    env:
+      ANEXUS_QDRANT_URL: http://localhost:6333
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Wait for Qdrant
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:6333/healthz > /dev/null; then
+              echo "qdrant ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "qdrant did not become ready"; exit 1
 
       - name: Install system OCR library
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr

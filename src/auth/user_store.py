@@ -1,7 +1,7 @@
-"""SQLite-backed account registry: users and encrypted credentials.
+﻿"""SQLite-backed account registry: users and encrypted credentials.
 
 Mirrors the storage conventions of `DocumentStore` / `ChatStore`: stdlib sqlite3,
-a fresh connection per operation (safe under Streamlit's threaded reruns) and an
+a fresh connection per operation (safe under concurrent requests) and an
 injectable `db_path` so tests never touch the real database.
 
 Schema:

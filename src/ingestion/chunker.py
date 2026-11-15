@@ -19,6 +19,7 @@ import logging
 import re
 from typing import Callable, Iterable, Sequence
 
+from src.observability import info, span
 from langchain_core.documents import Document
 
 from config.settings import CHUNK_OVERLAP, CHUNK_SIZE
@@ -194,19 +195,20 @@ class Chunker:
         """Split page Documents into chunk Documents, preserving metadata + chunk_id."""
         pages = list(documents)
         chunks: list[Document] = []
-        for page_number, document in enumerate(pages, start=1):
-            text = document.page_content or ""
-            if not text.strip():
-                continue
-            metadata = dict(document.metadata or {})
-            page = metadata.get("page_number", page_number)
-            for index, piece in enumerate(self.split_text(text), start=1):
-                chunk_metadata = dict(metadata)
-                chunk_metadata["source"] = chunk_metadata.get(
-                    "source", chunk_metadata.get("filename", "unknown")
-                )
-                doc_id = chunk_metadata.get("document_id", "unknown")
-                chunk_metadata["chunk_id"] = chunk_id_for(doc_id, page, index)
-                chunks.append(Document(page_content=piece, metadata=chunk_metadata))
-        logger.info("Chunked %d page(s) into %d chunk(s)", len(pages), len(chunks))
+        with span("ingestion.chunker.split", page_count=len(pages)):
+            for page_number, document in enumerate(pages, start=1):
+                text = document.page_content or ""
+                if not text.strip():
+                    continue
+                metadata = dict(document.metadata or {})
+                page = metadata.get("page_number", page_number)
+                for index, piece in enumerate(self.split_text(text), start=1):
+                    chunk_metadata = dict(metadata)
+                    chunk_metadata["source"] = chunk_metadata.get(
+                        "source", chunk_metadata.get("filename", "unknown")
+                    )
+                    doc_id = chunk_metadata.get("document_id", "unknown")
+                    chunk_metadata["chunk_id"] = chunk_id_for(doc_id, page, index)
+                    chunks.append(Document(page_content=piece, metadata=chunk_metadata))
+            info("Chunked pages", page_count=len(pages), chunk_count=len(chunks))
         return chunks

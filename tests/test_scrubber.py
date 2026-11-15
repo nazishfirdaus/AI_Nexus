@@ -238,6 +238,26 @@ def test_build_llm_inputs_scrubs_query_and_chunks_keeps_pages(scrubber):
     assert "Rahul" not in pages[("", 2)] and "4,50,000" in pages[("", 5)]
 
 
+def test_redacts_us_postal_address(scrubber):
+    text = "Property: 1847 Willow Creek Drive, Austin, TX 78745"
+    out, report = scrubber.scrub_with_report(text)
+    assert "1847" not in out and "78745" not in out
+    assert "<US_ADDRESS>" in out
+    assert report.get("US_ADDRESS", 0) >= 1
+
+
+def test_build_llm_inputs_removes_internal_document_ids(scrubber):
+    chunk = Chunk(
+        "Document ID: ANX-MTG-0001\n"
+        "Property: 1847 Willow Creek Drive, Austin, TX 78745",
+        1,
+    )
+    _, ctx, pages = build_llm_inputs("Where is the property?", [chunk], scrubber)
+    assert "ANX-MTG-0001" not in ctx
+    assert "ANX-MTG-0001" not in pages[("", 1)]
+    assert "<US_ADDRESS>" in ctx
+
+
 def test_build_llm_inputs_labels_blocks_with_the_source_document(scrubber):
     """Multi-doc context: every block shows which document it came from."""
     chunk = Chunk("Loan amount is 4,50,000.", 1)

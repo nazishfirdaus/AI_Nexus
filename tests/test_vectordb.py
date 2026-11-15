@@ -1,8 +1,14 @@
-"""Tests for the ChromaDB vector store (uses a real temp PersistentClient)."""
+"""Tests for the Qdrant vector store (real in-memory Qdrant client)."""
 import pytest
 from langchain_core.documents import Document
+from qdrant_client import QdrantClient
 
-from src.ingestion.vectordb import VectorDB
+from config import settings
+from src.ingestion.qdrant_vectordb import (
+    EmbeddingDimensionMismatch,
+    QdrantVectorDB,
+    point_id_for,
+)
 
 
 def make_docs(n=3, document_id="d1", prefix="d1"):
@@ -23,14 +29,20 @@ def make_docs(n=3, document_id="d1", prefix="d1"):
 
 
 def make_embeddings(n=3, dim=4):
-    return [[float(i + 1), 0.0, 0.0, float(i)] for i in range(n)]
+    vectors = []
+    for i in range(n):
+        vector = [0.0] * dim
+        vector[i % dim] = 1.0 + 0.1 * i
+        vectors.append(vector)
+    return vectors
 
 
 @pytest.fixture()
-def db(tmp_path):
-    store = VectorDB(persist_directory=str(tmp_path), collection_name="test_col")
+def db():
+    client = QdrantClient(location=":memory:")
+    store = QdrantVectorDB(collection_name="test_col", client=client)
     yield store
-    store.close()
+    client.close()
 
 
 def test_initial_state_empty(db):
@@ -51,26 +63,48 @@ def test_add_empty_is_noop(db):
     assert db.add_chunks([], []) == 0
 
 
+def test_dimension_mismatch_on_add_raises_and_keeps_data(db):
+    db.add_chunks(make_docs(2), make_embeddings(2))
+    with pytest.raises(EmbeddingDimensionMismatch) as exc:
+        db.add_chunks(
+            make_docs(1, document_id="d2", prefix="d2"),
+            [[0.1, 0.2, 0.3]],  # 3-dim vs the stored 4-dim
+        )
+    assert "re-ingest" in str(exc.value)
+    assert db.count() == 2
+
+
+def test_mixed_dimensions_in_one_batch_raise(db):
+    with pytest.raises(EmbeddingDimensionMismatch):
+        db.add_chunks(make_docs(2), [[0.1, 0.2], [0.1, 0.2, 0.3]])
+
+
+def test_search_dimension_mismatch_raises(db):
+    db.add_chunks(make_docs(), make_embeddings())
+    with pytest.raises(EmbeddingDimensionMismatch):
+        db.search([1.0, 0.0], k=1)
+
+
 def test_search_returns_top_k(db):
     db.add_chunks(make_docs(), make_embeddings())
-    out = db.search([1.0, 0.0, 0.0, 1.0], k=2)
+    out = db.search([1.0, 0.0, 0.0, 0.0], k=2)
     assert len(out) == 2
     assert out[0].page_content.startswith("Chunk 1")
 
 
 def test_search_preserves_metadata(db):
     db.add_chunks(make_docs(), make_embeddings())
-    out = db.search([1.0, 0.0, 0.0, 1.0], k=3)
+    out = db.search([1.0, 0.0, 0.0, 0.0], k=3)
     by_page = {d.metadata["page_number"]: d for d in out}
     assert set(by_page) == {1, 2, 3}
     assert by_page[2].metadata["ocr_used"] is True
     assert by_page[3].metadata["ocr_used"] is False
-    assert "distance" in by_page[1].metadata
+    assert "similarity" in by_page[1].metadata
 
 
 def test_search_zero_k_returns_empty(db):
     db.add_chunks(make_docs(), make_embeddings())
-    assert db.search([1.0, 0.0, 0.0, 1.0], k=0) == []
+    assert db.search([1.0, 0.0, 0.0, 0.0], k=0) == []
 
 
 def test_get_all_documents_round_trips(db):
@@ -81,16 +115,37 @@ def test_get_all_documents_round_trips(db):
     assert ids == {"d1_p1_c1", "d1_p2_c1", "d1_p3_c1"}
 
 
-def test_large_corpus_batches_add_and_paginates_get(db):
-    """Track A: >1 ADD_BATCH_SIZE additions and > GET_BATCH_SIZE reads (pagination)."""
-    from src.ingestion import vectordb as vdb
+def test_reingest_same_chunks_does_not_duplicate(db):
+    docs, vectors = make_docs(), make_embeddings()
+    assert db.add_chunks(docs, vectors) == 3
+    assert db.add_chunks(docs, vectors) == 3
+    assert db.count() == 3
+    assert db.document_ids() == ["d1"]
+    assert {d.metadata["chunk_id"] for d in db.get_all_documents()} == {
+        "d1_p1_c1",
+        "d1_p2_c1",
+        "d1_p3_c1",
+    }
 
-    # Build a corpus larger than the chroma batch size (default 512).
-    n = int(vdb.CHROMA_ADD_BATCH_SIZE) + 100
-    docs = [  
+
+def test_point_id_is_deterministic_uuid(db):
+    first = point_id_for("d1_p1_c1")
+    assert first == point_id_for("d1_p1_c1")
+    assert first != point_id_for("d1_p1_c2")
+
+
+def test_large_corpus_batches_add_and_paginates_get(db, monkeypatch):
+    """More than one ADD_BATCH_SIZE write and more than one GET_BATCH_SIZE read."""
+    monkeypatch.setattr(settings, "QDRANT_GET_BATCH_SIZE", 100)
+    n = int(settings.QDRANT_ADD_BATCH_SIZE) + 100
+    docs = [
         Document(
             page_content=f"Chunk {i}.",
-            metadata={"chunk_id": f"bulk_p{i}_c1", "document_id": "bulk", "page_number": i},
+            metadata={
+                "chunk_id": f"bulk_p{i}_c1",
+                "document_id": "bulk",
+                "page_number": i,
+            },
         )
         for i in range(1, n + 1)
     ]
@@ -100,7 +155,9 @@ def test_large_corpus_batches_add_and_paginates_get(db):
 
     all_docs = db.get_all_documents()
     assert len(all_docs) == n
-    assert {d.metadata["chunk_id"] for d in all_docs} == {d.metadata["chunk_id"] for d in docs}
+    assert {d.metadata["chunk_id"] for d in all_docs} == {
+        d.metadata["chunk_id"] for d in docs
+    }
 
 
 def test_reset_clears_collection(db):
@@ -147,6 +204,6 @@ def test_search_with_metadata_filter_restricts_corpus(db):
         make_docs(2, document_id="d2", prefix="d2"),
         make_embeddings(2),
     )
-    out = db.search([1.0, 0.0, 0.0, 1.0], k=10, where={"document_id": "d2"})
+    out = db.search([1.0, 0.0, 0.0, 0.0], k=10, where={"document_id": "d2"})
     assert out
     assert {d.metadata["document_id"] for d in out} == {"d2"}

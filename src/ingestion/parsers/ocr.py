@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.observability import span
+
 from config import settings
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -128,29 +130,28 @@ def ocr_image_with_engine(
     ``engine_used`` is None when no engine produced text. Raises RuntimeError
     when no OCR engine is installed at all.
     """
+    with span("ingestion.parsers.ocr.ocr_image_with_engine", requested_engine=engine):
+        order = _fallback_order(_normalize(engine))
+        available = [name for name in order if ocr_available(name)]
 
-    order = _fallback_order(_normalize(engine))
-    available = [name for name in order if ocr_available(name)]
+        if not available:
+            raise RuntimeError(
+                "No OCR engine available. Install Tesseract (baseline) or run "
+                "'pip install -r requirements-ocr.txt' for the RapidOCR fallback."
+            )
 
-    if not available:
-        raise RuntimeError(
-            "No OCR engine available. Install Tesseract (baseline) or run "
-            "'pip install -r requirements-ocr.txt' for the RapidOCR fallback."
-        )
+        for name in available:
+            try:
+                text = _run(name, image)
+            except Exception:
+                text = ""
+            if text and text.strip():
+                return text, name
 
-    for name in available:
-        try:
-            text = _run(name, image)
-        except Exception:
-            text = ""
-        if text and text.strip():
-            return text, name
-
-    return "", None
+        return "", None
 
 
 def ocr_image(image: "Image", *, engine: str | None = None) -> str:
     """OCR ``image`` using the primary engine with automatic fallback."""
-
     text, _ = ocr_image_with_engine(image, engine=engine)
     return text

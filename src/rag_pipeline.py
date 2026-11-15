@@ -24,14 +24,16 @@ from langchain_core.documents import Document
 
 from config import settings
 from config.prompts import SUMMARY_PROMPT
+from src.errors import DuplicateDocumentError  # re-exported for existing imports
 from src.generation.aggregator import Aggregator, FinalAnswer
+from src.cache import ResponseCache
 from src.generation.llm import (
     AllProvidersFailed,
     LLMHandler,
     LLMResponse,
     ScrubbedText,
 )
-from src.ingestion import embedder as embedder_module
+from src.services.retrieval import embedding as embedder_module
 from src.ingestion.chunker import Chunker
 from src.ingestion.document_store import DocumentStore
 # parse_document imported lazily in ingest_document to reduce startup cost
@@ -47,11 +49,18 @@ from src.memory.history import (
 )
 from src.memory.rewriter import QueryRewriter
 from src.retrieval.query_expander import QueryExpander
+from src.redaction.placeholders import (
+    display_text,
+    repair_mojibake,
+    strip_internal_identifiers,
+)
 from src.redaction.presidio_scrubber import PresidioScrubber, build_llm_inputs
 from src.retrieval.reranker import CrossEncoderReranker, RankedChunk
 from src.retrieval.retriever import HybridRetriever
 from src.routing.quota_tracker import QuotaTracker
 from src.routing.semantic_router import RouteDecision, SemanticRouter
+
+from src.observability import hash_id, span
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +108,7 @@ def _build_default_chunker() -> Chunker:
     """
 
     if settings.CHUNK_TOKEN_AWARE:
-        from src.ingestion.embedder import token_length
+        from src.services.retrieval.embedding import token_length
 
         return Chunker(
             chunk_size=settings.CHUNK_MAX_TOKENS,
@@ -168,12 +177,6 @@ def _page_overcleaned(page: Document) -> bool:
     if raw < settings.MIN_TEXT_LENGTH_FOR_OCR:
         return False
     return raw > 0 and (clean / raw) < settings.MIN_PAGE_CONTENT_RATIO
-
-
-class DuplicateDocumentError(ValueError):
-    """Raised when content already exists under another document name and the
-    configured DEDUP_ACTION is "skip". The UI reports it as information, not as an
-    ingestion failure."""
 
 
 @dataclass
@@ -287,16 +290,30 @@ class _StreamingScrubber:
         return best
 
     def _scrub(self, text: str) -> str:
-        if self.scrubber is None or not text:
+        if not text:
             return text
+        # Streaming only repairs encoding damage and neutralises placeholders.
+        # Identifier/address cleanup runs on the complete answer, where a value
+        # cannot be split across chunks and released as a fragment.
+        if self.scrubber is None:
+            return display_text(
+                text, clean=False, strip_ids=False, redact_addresses=False
+            )
         try:
-            return str(self.scrubber.scrub(text))
+            return display_text(
+                str(self.scrubber.scrub(text)),
+                clean=False,
+                strip_ids=False,
+                redact_addresses=False,
+            )
         except Exception:
             logger.warning(
                 "Streaming scrub failed; passing the chunk through unsanitised.",
                 exc_info=True,
             )
-            return text
+            return display_text(
+                text, clean=False, strip_ids=False, redact_addresses=False
+            )
 
 
 class _StreamHandle:
@@ -329,6 +346,7 @@ class RAGPipeline:
         chunker: Optional[Chunker] = None,
         embedder=None,
         document_store: Optional[DocumentStore] = None,
+        cache: Optional[ResponseCache] = None,
     ) -> None:
         self.vector_db = vector_db
         self.retriever = retriever
@@ -342,6 +360,9 @@ class RAGPipeline:
         # In-memory default: unit tests construct RAGPipeline directly and must
         # never write to the real chat database. The factory injects the shared store.
         self.document_store = document_store or DocumentStore(":memory:")
+        # Optional exact-match answer cache. The API factory enables it per
+        # tenant; direct construction (tests/eval) leaves it off by default.
+        self.cache = cache
         self.rewriter = QueryRewriter(llm_handler, scrubber=self.scrubber)
         self.expander = QueryExpander(llm_handler, scrubber=self.scrubber)
         # Most recently ingested document (kept for display/back-compat).
@@ -357,14 +378,114 @@ class RAGPipeline:
         """Every ingested document, oldest first."""
         return self.document_store.list()
 
+    @staticmethod
+    def _remove_managed_source(row: Optional[dict]) -> None:
+        """Delete the stored source file for a document we copied ourselves.
+
+        Bulk-ingested files are recorded as unmanaged references to the user's
+        original path; deleting a corpus entry must never delete those.
+        """
+        if not row or not row.get("storage_managed"):
+            return
+        path = row.get("storage_path")
+        if not path:
+            return
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not delete stored source file %s", path, exc_info=True)
+
     def reset(self) -> None:
         """Clear-all: drop vectors/BM25, the registry and the active document."""
+        for row in self.document_store.list():
+            self._remove_managed_source(row)
         self.vector_db.reset()
         self.retriever.reset()
         self.document_store.clear()
         self.active_document_id = None
         self.active_filename = None
+        if self.cache is not None:
+            self.cache.clear()
         logger.info("RAG pipeline state reset")
+
+    # ------------------------------------------------------------------ cache
+    def _answer_cache_key(
+        self,
+        query: str,
+        chat_history: Optional[list[dict]],
+        conversation_summary: Optional[str],
+        document_id: Optional[str],
+    ) -> Optional[str]:
+        """Tenant/corpus/history-scoped key, or None when caching is off.
+
+        The corpus signature changes whenever a document is added, removed or
+        re-ingested, so entries for an old corpus are never served again even
+        before their TTL expires.
+        """
+        if self.cache is None or not self.cache.enabled:
+            return None
+        try:
+            documents = self.document_store.list()
+        except Exception:  # noqa: BLE001 - a cache miss is always safe
+            logger.warning("Could not read corpus signature; skipping answer cache",
+                           exc_info=True)
+            return None
+
+        corpus = tuple(
+            (
+                str(record.get("id") or ""),
+                str(record.get("content_hash") or ""),
+                str(record.get("created_at") or ""),
+            )
+            for record in documents
+        )
+        turns = tuple(
+            (str(turn.get("role") or ""), str(turn.get("content") or ""))
+            for turn in (chat_history or [])
+        )
+        return self.cache.make_key(
+            "rag-answer",
+            "v1",
+            str(query or "").strip(),
+            str(document_id or ""),
+            turns,
+            str(conversation_summary or "").strip(),
+            corpus,
+            tuple(sorted(getattr(settings, "PROVIDER_MODELS", {}).items())),
+            float(settings.LLM_TEMPERATURE),
+            int(settings.LLM_MAX_TOKENS),
+            int(settings.TOP_K_RERANK),
+            int(settings.CONTEXT_MAX_CHARS),
+            bool(settings.QUERY_EXPANSION_ENABLED),
+        )
+
+    def _read_cached_answer(self, key: Optional[str]) -> Optional[FinalAnswer]:
+        if not key or self.cache is None:
+            return None
+        data = self.cache.get(key)
+        if not isinstance(data, dict):
+            return None
+        try:
+            answer = FinalAnswer.from_dict(data)
+        except (TypeError, ValueError):
+            logger.warning("Discarding malformed cached answer")
+            return None
+        answer.latency_s = 0.0  # cache hits do no retrieval or generation
+        # Entries written before placeholder neutralisation existed must not
+        # leak tokens back into the UI.
+        answer.text = display_text(answer.text)
+        for citation in answer.citations:
+            citation.snippet = display_text(citation.snippet)
+        logger.debug("RAG answer cache hit")
+        return answer
+
+    def _store_cached_answer(
+        self, key: Optional[str], answer: Optional[FinalAnswer]
+    ) -> None:
+        # Only real provider answers are cached: no-context and graceful-failure
+        # responses stay cheap and must not pin a temporary outage for the TTL.
+        if key and self.cache is not None and answer is not None and answer.provider:
+            self.cache.set(key, answer.to_dict())
 
     # ---------------------------------------------------------------- ingestion
     def ingest_document(
@@ -487,10 +608,16 @@ class RAGPipeline:
 
         # Contextual headers (opt-in): embed "title · page N" + text while the
         # stored chunk text stays clean for citations and the LLM.
-        if settings.CHUNK_CONTEXT_HEADER == "meta":
-            vectors = _embed_chunk_vectors(self.embedder, _chunk_embed_texts(chunks))
-        else:
-            vectors = self.embedder.embed_documents(chunks)
+        with span(
+            "rag.embed_chunks",
+            chunk_count=len(chunks),
+            context_header=settings.CHUNK_CONTEXT_HEADER,
+            document_id=hash_id(document_id),
+        ):
+            if settings.CHUNK_CONTEXT_HEADER == "meta":
+                vectors = _embed_chunk_vectors(self.embedder, _chunk_embed_texts(chunks))
+            else:
+                vectors = self.embedder.embed_documents(chunks)
         if len(vectors) != len(chunks):
             raise RuntimeError(
                 f"Embedding mismatch: {len(chunks)} chunks, {len(vectors)} vectors"
@@ -534,7 +661,7 @@ class RAGPipeline:
             "Ingested %s: %d page(s) -> %d chunk(s) in %.2fs "
             "(mean %.0f chars, max %d; +%d duplicate chunk(s) dropped, "
             "%d short chunk(s) dropped, %d boilerplate line(s) removed)",
-            filename,
+            hash_id(filename),
             len(page_documents),
             len(chunks),
             duration,
@@ -546,10 +673,9 @@ class RAGPipeline:
         )
         if pages_overcleaned:
             logger.warning(
-                "%d page(s) of %s lost most of their text to cleaning "
+                "%d page(s) lost most of their text to cleaning "
                 "(check extraction quality / cleaning settings)",
                 pages_overcleaned,
-                filename,
             )
         return IngestionResult(
             pages=len(page_documents),
@@ -609,7 +735,9 @@ class RAGPipeline:
 
     def remove_document(self, document_id: str) -> bool:
         """Delete one document's chunks and registry entry. Others stay intact."""
+        row = self.document_store.get(document_id)
         self.vector_db.delete_document(document_id)
+        self._remove_managed_source(row)
         self.document_store.remove(document_id)
         self.retriever.rebuild_bm25(self.vector_db.get_all_documents())
         if self.active_document_id == document_id:
@@ -659,19 +787,34 @@ class RAGPipeline:
         document (both dense and BM25). An unknown id yields a no-context answer
         rather than silently leaking a cross-document result.
         """
+        cache_key = self._answer_cache_key(
+            query, chat_history, conversation_summary, document_id
+        )
+        cached = self._read_cached_answer(cache_key)
+        if cached is not None:
+            return cached
+
         prepared = self._prepare(query, chat_history, conversation_summary, document_id)
         if isinstance(prepared, FinalAnswer):
             return prepared
 
         try:
-            llm_response = self.llm_handler.generate(
-                prepared.scrubbed_query,
-                prepared.scrubbed_context,
-                provider_order=prepared.route.provider_order,
-                history=prepared.turns,
-                summary=prepared.summary,
-                temperature=settings.LLM_TEMPERATURE,
-            )
+            with span(
+                "rag.generate",
+                provider_order=",".join(prepared.route.provider_order),
+                intent=prepared.route.intent,
+                context_chunks=len(prepared.reranked),
+                has_history=bool(prepared.turns),
+                has_summary=bool(prepared.summary),
+            ):
+                llm_response = self.llm_handler.generate(
+                    prepared.scrubbed_query,
+                    prepared.scrubbed_context,
+                    provider_order=prepared.route.provider_order,
+                    history=prepared.turns,
+                    summary=prepared.summary,
+                    temperature=settings.LLM_TEMPERATURE,
+                )
         except Exception as e:
             logger.exception("All LLM providers failed")
             return self.aggregator.graceful_failure(
@@ -681,13 +824,15 @@ class RAGPipeline:
                 routing_reason=prepared.route.reason,
             )
 
-        return self.aggregator.aggregate(
+        answer = self.aggregator.aggregate(
             llm_response,
             prepared.reranked,
             intent=prepared.route.intent,
             routing_reason=prepared.route.reason,
             scrubbed_by_page=prepared.scrubbed_by_page,
         )
+        self._store_cached_answer(cache_key, answer)
+        return answer
 
     def answer_query_stream(
         self,
@@ -703,6 +848,15 @@ class RAGPipeline:
         After the iterator is exhausted, `.final` holds the same FinalAnswer
         the non-streaming path would have produced (scrubbed text + citations).
         """
+        cache_key = self._answer_cache_key(
+            query, chat_history, conversation_summary, document_id
+        )
+        cached = self._read_cached_answer(cache_key)
+        if cached is not None:
+            # Replay the complete answer as one delta: the client gets the same
+            # text it would have streamed, without retrieval or generation.
+            return _StreamHandle(iter([cached.text]), lambda _text: cached)
+
         prepared = self._prepare(query, chat_history, conversation_summary, document_id)
         if isinstance(prepared, FinalAnswer):
             return _StreamHandle(iter([prepared.text]), lambda _text: prepared)
@@ -720,14 +874,22 @@ class RAGPipeline:
             raw_parts.clear()
             stream_meta.clear()
             try:
-                stream = self.llm_handler.generate_stream(
-                    prepared.scrubbed_query,
-                    prepared.scrubbed_context,
-                    provider_order=prepared.route.provider_order,
-                    history=prepared.turns,
-                    summary=prepared.summary,
-                    temperature=settings.LLM_TEMPERATURE,
-                )
+                with span(
+                    "rag.generate_stream",
+                    provider_order=",".join(prepared.route.provider_order),
+                    intent=prepared.route.intent,
+                    context_chunks=len(prepared.reranked),
+                    has_history=bool(prepared.turns),
+                    has_summary=bool(prepared.summary),
+                ):
+                    stream = self.llm_handler.generate_stream(
+                        prepared.scrubbed_query,
+                        prepared.scrubbed_context,
+                        provider_order=prepared.route.provider_order,
+                        history=prepared.turns,
+                        summary=prepared.summary,
+                        temperature=settings.LLM_TEMPERATURE,
+                    )
                 for raw_chunk in stream:
                     raw_parts.append(raw_chunk)
                     delta = scrubber.feed(raw_chunk)
@@ -774,13 +936,15 @@ class RAGPipeline:
                 latency_s=stream_meta["latency_s"],
                 fallbacks_tried=stream_meta["fallbacks_tried"],
             )
-            return self.aggregator.aggregate(
+            answer = self.aggregator.aggregate(
                 llm_response,
                 prepared.reranked,
                 intent=prepared.route.intent,
                 routing_reason=prepared.route.reason,
                 scrubbed_by_page=prepared.scrubbed_by_page,
             )
+            self._store_cached_answer(cache_key, answer)
+            return answer
 
         return _StreamHandle(generate(), build_final)
 
@@ -799,6 +963,7 @@ class RAGPipeline:
         validation = self._validate_query(query)
         if validation is not None:
             return self.aggregator.no_context(routing_reason=validation)
+        query = repair_mojibake(query)
 
         if not self.has_document:
             return self.aggregator.no_context(
@@ -834,9 +999,21 @@ class RAGPipeline:
             queries = [search_query] + expanded
 
         if len(queries) == 1:
-            retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
+            with span(
+                "rag.retrieve",
+                mode="hybrid",
+                query_variants=1,
+                document_scoped=document_id is not None,
+            ):
+                retrieved = self.retriever.hybrid_retrieve(search_query, document_id)
         else:
-            retrieved = self.retriever.multi_query_retrieve(queries, document_id)
+            with span(
+                "rag.retrieve",
+                mode="multi_query",
+                query_variants=len(queries),
+                document_scoped=document_id is not None,
+            ):
+                retrieved = self.retriever.multi_query_retrieve(queries, document_id)
 
         if not retrieved and search_query != query:
             # The rewrite went nowhere: fall back to the user's raw query.
@@ -851,7 +1028,12 @@ class RAGPipeline:
             return self.aggregator.no_context(routing_reason="No context matched the query.")
 
         # 2) Local cross-encoder reranking
-        reranked = self.reranker.rerank(search_query, retrieved, top_k=settings.TOP_K_RERANK)
+        with span(
+            "rag.rerank",
+            candidate_count=len(retrieved),
+            top_k=settings.TOP_K_RERANK,
+        ):
+            reranked = self.reranker.rerank(search_query, retrieved, top_k=settings.TOP_K_RERANK)
         if not reranked:
             return self.aggregator.no_context(routing_reason="Reranker found no relevant context.")
 
@@ -931,7 +1113,7 @@ class RAGPipeline:
     def restore_documents(self) -> list[dict]:
         """Re-attach stored documents after a restart, if their vectors remain.
 
-        Chroma persists on disk but the registry and BM25 are rebuilt. The
+        Qdrant persists remotely but the registry and BM25 are rebuilt. The
         registry is the source of truth when it has rows; otherwise (upgrade
         from the single-document version, or a wiped registry) the document
         list is reconstructed from chunk metadata and backfilled. Registry rows
@@ -989,7 +1171,7 @@ class RAGPipeline:
             logger.info(
                 "Restored %d document(s): %s",
                 len(restored),
-                ", ".join(r["filename"] for r in restored),
+                ", ".join(hash_id(r["filename"]) for r in restored),
             )
         return restored
 
@@ -1002,6 +1184,9 @@ class RAGPipeline:
         """
         if not text:
             return None
+        # Old rows may contain UTF-8 decoded as Latin-1; repair before the
+        # model sees it so a previous answer cannot seed new mojibake.
+        text = repair_mojibake(text)
         try:
             return self.scrubber.scrub(text)
         except Exception:
